@@ -762,9 +762,15 @@ newpath:
         }
     }
     for (i = 0; i < w+h; i++) {
-        if (state->numbers->numbers[i] == 0)
+        if (state->numbers->numbers[i] <= 2)
             goto newpath; /* too boring */
     }
+    int total_filled = 0;
+    for (i = 0; i < w; i++) {
+        total_filled += state->numbers->numbers[i];
+    }
+    if (total_filled * 10 <= 7 * w * h)
+        goto newpath;
 
     if (params->single_ones) {
         bool last_was_one = true, is_one; /* disallow 1 clue at entry point */
