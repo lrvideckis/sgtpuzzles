@@ -3061,7 +3061,7 @@ static void game_redraw(drawing *dr, game_drawstate *ds,
         if (tile(state, ui->cx, ui->cy) & 0xF) {
             n = state->width * state->height;
             for (i = a = n2 = 0; i < n; i++) {
-                if (active[i])
+                if (state->tiles[i] & LOCKED)
                     a++;
                 if (state->tiles[i] & 0xF)
                     n2++;
@@ -3073,7 +3073,7 @@ static void game_redraw(drawing *dr, game_drawstate *ds,
              * tile is active), we might as well omit this too.
              */
             if (!complete || a < n2)
-                p += sprintf(p, _("Active: %d/%d"), a, n2);
+                p += sprintf(p, _("Locked: %d/%d"), a, n2);
         }
 
 	status_bar(dr, statusbuf);
