@@ -761,27 +761,21 @@ newpath:
             }
         }
     }
-    for (i = 0; i < w+h; i++) {
+    for (i = 0; i < w+h; i++)
         if (state->numbers->numbers[i] <= 2)
             goto newpath; /* too boring */
-    }
-    int total_filled = 0;
-    for (i = 0; i < w; i++) {
-        total_filled += state->numbers->numbers[i];
-    }
-    if (total_filled * 10 <= 7 * w * h)
-        goto newpath;
-
-    if (params->single_ones) {
-        bool last_was_one = true, is_one; /* disallow 1 clue at entry point */
-        for (i = 0; i < w+h; i++) {
-            is_one = (state->numbers->numbers[i] == 1);
-            if (is_one && last_was_one)
-                goto newpath; /* disallow consecutive 1 clues. */
-            last_was_one = is_one;
+    {
+        int total_filled_cols = 0;
+        for (i = 0; i < w; i++) {
+            total_filled_cols += state->numbers->numbers[i];
         }
-        if (state->numbers->numbers[w+h-1] == 1)
-            goto newpath; /* (disallow 1 clue at exit point) */
+        int total_filled_rows = 0;
+        for (i = 0; i < h; i++) {
+            total_filled_rows += state->numbers->numbers[i + w];
+        }
+        assert(total_filled_cols == total_filled_rows);
+        if (total_filled_cols * 100 <= 72 * w * h)
+            goto newpath;
     }
 
     /* --- Add clues to make a soluble puzzle */
