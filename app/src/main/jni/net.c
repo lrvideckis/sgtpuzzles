@@ -1324,6 +1324,21 @@ static char *new_game_desc(const game_params *params, random_state *rs,
     assert(count234(possibilities) == 0);
     freetree234(possibilities);
 
+    /*
+     * Regenerate the grid based on high percentage of straight-line tiles. These tiles make the
+     * game easier because they only have 2 orientations and they increase local deductions.
+     */
+    int count_straight_lines = 0;
+    for (y = 0; y < h; y++)
+        for (x = 0; x < w; x++) {
+            int arms = (index(params, tiles, x, y) & 15);
+            if (arms == F(arms))
+                count_straight_lines++;
+        }
+    const int MAX_PERCENTAGE_LINE_TILES = 5;
+    if (100 * count_straight_lines >= MAX_PERCENTAGE_LINE_TILES * w * h)
+        goto begin_generation;
+
     if (params->unique) {
 	int prevn = -1;
 
