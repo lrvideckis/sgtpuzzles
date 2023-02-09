@@ -767,6 +767,17 @@ newpath:
     if (min(state->numbers->numbers[0], state->numbers->numbers[w-1]) < h-3 ||
             min(state->numbers->numbers[w], state->numbers->numbers[w+h-1]) < w-3)
         goto newpath;
+    {
+        int total_filled_cols = 0;
+        for (i = 0; i < w; i++) total_filled_cols += state->numbers->numbers[i];
+        {
+            int total_filled_rows = 0;
+            for (i = 0; i < h; i++) total_filled_rows += state->numbers->numbers[i + w];
+            assert(total_filled_cols == total_filled_rows);
+        }
+        if (total_filled_cols * 100 <= 72 * w * h)
+            goto newpath;
+    }
 
     /* --- Add clues to make a soluble puzzle */
     ret = add_clues(state, rs, params->diff);
