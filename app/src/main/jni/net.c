@@ -1332,8 +1332,23 @@ static char *new_game_desc(const game_params *params, random_state *rs,
     for (y = 0; y < h; y++)
         for (x = 0; x < w; x++) {
             int arms = (index(params, tiles, x, y) & 15);
-            if (arms == F(arms))
+            if (arms == F(arms)) {
                 count_straight_lines++;
+
+                int arms_adj_1 = index(params, tiles, (x+1)%w, y);
+                int arms_adj_2 = index(params, tiles, (x-1+w)%w, y);
+                if (COUNT(arms_adj_1) == 1 && COUNT(arms_adj_2) == 1) {
+                    // regenerate grid if there's a leaf-straight-leaf pattern
+                    goto begin_generation;
+                }
+
+                arms_adj_1 = index(params, tiles, x, (y+1)%h);
+                arms_adj_2 = index(params, tiles, x, (y-1+h)%h);
+                if (COUNT(arms_adj_1) == 1 && COUNT(arms_adj_2) == 1) {
+                    // regenerate grid if there's a leaf-straight-leaf pattern
+                    goto begin_generation;
+                }
+            }
         }
     const int MAX_PERCENTAGE_LINE_TILES = 5;
     if (100 * count_straight_lines >= MAX_PERCENTAGE_LINE_TILES * w * h)
