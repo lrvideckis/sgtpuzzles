@@ -184,6 +184,9 @@ static const struct game_params net_presets[] = {
 #endif
 };
 
+static const int di[] = {-1, 1, 0, 0};
+static const int dj[] = {0, 0, -1, 1};
+
 static bool game_fetch_preset(int i, char **name, game_params **params)
 {
     game_params *ret;
@@ -1374,34 +1377,39 @@ static char *new_game_desc(const game_params *params, random_state *rs,
 	    prevn = n;
 	}
     /*
-     * Regenerate the grid based on high percentage of straight-line tiles. These tiles make the
-     * game easier because they only have 2 orientations and they increase local deductions.
+     * Regenerate the grid based on existance of local deductions, in an effort to make it harder
      */
-    int count_straight_lines = 0;
     for (y = 0; y < h; y++)
         for (x = 0; x < w; x++) {
+            int num_adjacent_leafs = 0;
+            for (int dir = 0; dir < 4; dir++) {
+                int adj_arms = (index(params, tiles, (x + di[dir] + w) % w, (y + dj[dir] + h) % h) & 15);
+                if (COUNT(adj_arms) == 1) {
+                    num_adjacent_leafs++;
+                }
+            }
+            assert(num_adjacent_leafs <= 3);
+            if(num_adjacent_leafs == 3) {
+                // regenerate grid if there's a tile with 3 adjacent leaves
+                // this leads to a trivial local deduction
+                goto begin_generation;
+            }
             int arms = (index(params, tiles, x, y) & 15);
             if (arms == F(arms)) {
-                count_straight_lines++;
-
-                int arms_adj_1 = index(params, tiles, (x+1)%w, y);
-                int arms_adj_2 = index(params, tiles, (x-1+w)%w, y);
+                int arms_adj_1 = (index(params, tiles, (x+1)%w, y) & 15);
+                int arms_adj_2 = (index(params, tiles, (x-1+w)%w, y) & 15);
                 if (COUNT(arms_adj_1) == 1 && COUNT(arms_adj_2) == 1) {
                     // regenerate grid if there's a leaf-straight-leaf pattern
                     goto begin_generation;
                 }
-
-                arms_adj_1 = index(params, tiles, x, (y+1)%h);
-                arms_adj_2 = index(params, tiles, x, (y-1+h)%h);
+                arms_adj_1 = (index(params, tiles, x, (y+1)%h) & 15);
+                arms_adj_2 = (index(params, tiles, x, (y-1+h)%h) & 15);
                 if (COUNT(arms_adj_1) == 1 && COUNT(arms_adj_2) == 1) {
                     // regenerate grid if there's a leaf-straight-leaf pattern
                     goto begin_generation;
                 }
             }
         }
-    const int MAX_PERCENTAGE_LINE_TILES = 5;
-    if (100 * count_straight_lines >= MAX_PERCENTAGE_LINE_TILES * w * h)
-        goto begin_generation;
 
 	/*
 	 * The solver will have left a lot of LOCKED bits lying
