@@ -1654,6 +1654,20 @@ static int check_difficulty(const game_params *params, game_state *new,
         debug(("Puzzle is not soluble at requested difficulty."));
         return -1;
     }
+    for (i = 0; i < new->h; i++) {
+        int neutral_count = new->common->rowcount[3 * i + NEUTRAL];
+        if (neutral_count == 0 || neutral_count == new->w) {
+            //if there are no neutral's or all are neutral's, then there's a local deduction
+            return -1;
+        }
+    }
+    for (i = 0; i < new->w; i++) {
+        int neutral_count = new->common->colcount[3 * i + NEUTRAL];
+        if (neutral_count == 0 || neutral_count == new->h) {
+            //if there are no neutral's or all are neutral's, then there's a local deduction
+            return -1;
+        }
+    }
     if (!params->stripclues) return 0;
 
     /* Copy the correct grid away. */
