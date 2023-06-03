@@ -1654,20 +1654,10 @@ static int check_difficulty(const game_params *params, game_state *new,
         debug(("Puzzle is not soluble at requested difficulty."));
         return -1;
     }
-    for (i = 0; i < new->h; i++) {
-        int neutral_count = new->common->rowcount[3 * i + NEUTRAL];
-        if (neutral_count == 0 || neutral_count == new->w) {
-            //if there are no neutral's or all are neutral's, then there's a local deduction
-            return -1;
-        }
-    }
-    for (i = 0; i < new->w; i++) {
-        int neutral_count = new->common->colcount[3 * i + NEUTRAL];
-        if (neutral_count == 0 || neutral_count == new->h) {
-            //if there are no neutral's or all are neutral's, then there's a local deduction
-            return -1;
-        }
-    }
+    //let's not put any code here for skipping puzzles cuz it allows me to cheat:
+    //before, for example, I skipped puzzles here where there exists a row/col with all non-dominoes
+    //but after removing clues, I have this extra piece of knowledge that each row/col must contain
+    //at least one dominoe even if there are missing clues on that row/col, which allows me to cheat
     if (!params->stripclues) return 0;
 
     /* Copy the correct grid away. */
@@ -1719,6 +1709,21 @@ static int check_difficulty(const game_params *params, game_state *new,
     sfree(scratch);
     sfree(grid_correct);
 
+    //let's skip when there's a row/col where both the positive and negative clues are 0
+    //let's also skip when there's a row/col where the positive and negative sum to length of the col/row
+    //both cases are more trivial, boring
+    for (int i = 0; i < new->w; i++) {
+        rowcol col = mkrowcol(new, i, COLUMN);
+        //col.targets[POSITIVE] will equal -1 for "clue is hidden"
+        if (col.targets[POSITIVE] == 0 && col.targets[NEGATIVE] == 0) return -1;
+        if (col.targets[POSITIVE] + col.targets[NEGATIVE] == new->h) return -1;
+    }
+
+    for (int i = 0; i < new->h; i++) {
+        rowcol row = mkrowcol(new, i, ROW);
+        if (row.targets[POSITIVE] == 0 && row.targets[NEGATIVE] == 0) return -1;
+        if (row.targets[POSITIVE] + row.targets[NEGATIVE] == new->w) return -1;
+    }
     return 0;
 }
 
