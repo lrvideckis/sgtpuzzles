@@ -1376,6 +1376,8 @@ static char *new_game_desc(const game_params *params, random_state *rs,
 
 	    prevn = n;
 	}
+    int num_triple_leafs = 0;
+    int num_double_straight = 0;
     /*
      * Regenerate the grid based on existance of local deductions, in an effort to make it harder
      */
@@ -1392,24 +1394,36 @@ static char *new_game_desc(const game_params *params, random_state *rs,
             if(num_adjacent_leafs == 3) {
                 // regenerate grid if there's a tile with 3 adjacent leaves
                 // this leads to a trivial local deduction
-                goto begin_generation;
+                num_triple_leafs++;
             }
             int arms = (index(params, tiles, x, y) & 15);
             if (arms == F(arms)) {
                 int arms_adj_1 = (index(params, tiles, (x+1)%w, y) & 15);
                 int arms_adj_2 = (index(params, tiles, (x-1+w)%w, y) & 15);
+                if (arms_adj_2 == F(arms_adj_2)) {
+                    num_double_straight++;
+                }
                 if (COUNT(arms_adj_1) == 1 && COUNT(arms_adj_2) == 1) {
                     // regenerate grid if there's a leaf-straight-leaf pattern
                     goto begin_generation;
                 }
                 arms_adj_1 = (index(params, tiles, x, (y+1)%h) & 15);
                 arms_adj_2 = (index(params, tiles, x, (y-1+h)%h) & 15);
+                if (arms_adj_2 == F(arms_adj_2)) {
+                    num_double_straight++;
+                }
                 if (COUNT(arms_adj_1) == 1 && COUNT(arms_adj_2) == 1) {
                     // regenerate grid if there's a leaf-straight-leaf pattern
                     goto begin_generation;
                 }
             }
         }
+        //int num_triple_leafs = 0;
+        //int num_double_straight = 0;
+    if (num_triple_leafs >= 2 || num_double_straight >= 5) {
+        goto begin_generation;
+    }
+
 
 	/*
 	 * The solver will have left a lot of LOCKED bits lying
