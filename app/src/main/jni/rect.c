@@ -2424,10 +2424,11 @@ static char *interpret_move(const game_state *from, game_ui *ui,
         enddrag = true;
         erasing = (button == RIGHT_RELEASE);
     } else if (IS_CURSOR_MOVE(button)) {
-        move_cursor(button, &ui->cur_x, &ui->cur_y, from->w, from->h, false);
-        ui->cur_visible = true;
+        char *ret;
+        ret = move_cursor(button, &ui->cur_x, &ui->cur_y, from->w, from->h,
+                          false, &ui->cur_visible);
         active = true;
-        if (!ui->cur_dragging) return UI_UPDATE;
+        if (!ui->cur_dragging || ret != MOVE_UI_UPDATE) return ret;
         coord_round((float)ui->cur_x + 0.5F, (float)ui->cur_y + 0.5F, &xc, &yc);
     } else if (IS_CURSOR_SELECT(button)) {
         if (ui->drag_start_x >= 0 && !ui->cur_dragging) {
@@ -2440,7 +2441,7 @@ static char *interpret_move(const game_state *from, game_ui *ui,
         if (!ui->cur_visible) {
             assert(!ui->cur_dragging);
             ui->cur_visible = true;
-            return UI_UPDATE;
+            return MOVE_UI_UPDATE;
         }
         coord_round((float)ui->cur_x + 0.5F, (float)ui->cur_y + 0.5F, &xc, &yc);
         erasing = (button == CURSOR_SELECT2);
@@ -2461,7 +2462,7 @@ static char *interpret_move(const game_state *from, game_ui *ui,
             reset_ui(ui); /* cancel keyboard dragging */
             ui->cur_dragging = false;
         }
-        return UI_UPDATE;
+        return MOVE_UI_UPDATE;
     } else if (button != LEFT_DRAG && button != RIGHT_DRAG) {
         return NULL;
     }
@@ -2545,7 +2546,7 @@ static char *interpret_move(const game_state *from, game_ui *ui,
     if (ret)
 	return ret;		       /* a move has been made */
     else if (active)
-        return UI_UPDATE;
+        return MOVE_UI_UPDATE;
     else
 	return NULL;
 }
@@ -2639,7 +2640,7 @@ static game_state *execute_move(const game_state *from, const char *move)
 #define MAX4(x,y,z,w) ( max(max(x,y),max(z,w)) )
 
 static void game_compute_size(const game_params *params, int tilesize,
-                              int *x, int *y)
+                              const game_ui *ui, int *x, int *y)
 {
     /* Ick: fake up `ds->tilesize' for macro expansion purposes */
     struct { int tilesize; } ads, *ds = &ads;
@@ -2917,19 +2918,21 @@ static int game_status(const game_state *state)
 }
 
 #ifndef NO_PRINTING
-static void game_print_size(const game_params *params, float *x, float *y)
+static void game_print_size(const game_params *params, const game_ui *ui,
+                            float *x, float *y)
 {
     int pw, ph;
 
     /*
      * I'll use 5mm squares by default.
      */
-    game_compute_size(params, 500, &pw, &ph);
+    game_compute_size(params, 500, ui, &pw, &ph);
     *x = pw / 100.0F;
     *y = ph / 100.0F;
 }
 
-static void game_print(drawing *dr, const game_state *state, int tilesize)
+static void game_print(drawing *dr, const game_state *state, const game_ui *ui,
+                       int tilesize)
 {
     int w = state->w, h = state->h;
     int ink = print_mono_colour(dr, 0);
@@ -3004,6 +3007,7 @@ const struct game thegame = {
     free_game,
     true, solve_game,
     true, game_can_format_as_text_now, game_text_format,
+    NULL, NULL, /* get_prefs, set_prefs */
     new_ui,
     free_ui,
     NULL, /* encode_ui */

@@ -978,7 +978,7 @@ static int path_cmp(const void *a, const void *b) {
 
 static char *new_game_desc(const game_params *params, random_state *rs,
                            char **aux, bool interactive) {
-    int i,count,c,w,h,r,p,g;
+    int count,c,w,h,r,p,g;
     game_state *new;
 
     /* Variables for puzzle generation algorithm */
@@ -999,7 +999,6 @@ static char *new_game_desc(const game_params *params, random_state *rs,
     char *e;
     char *desc; 
 
-    i = 0;
     while (true) {
         new = new_state(params);
         abort = false;
@@ -1259,7 +1258,6 @@ static char *new_game_desc(const game_params *params, random_state *rs,
          * difficulty level, free memory and start from scratch */    
         sfree(old_guess);
         free_game(new);
-        i++;
     }
     
     /* We have a valid puzzle! */
@@ -1589,6 +1587,8 @@ static char *solve_game(const game_state *state_start, const game_state *currsta
     }
 
 /*  printf("Puzzle solved at level %s, iterations %d, ambiguous %d\n", (solved_bruteforce ? "TRICKY" : "NORMAL"), iterative_depth, count_ambiguous); */
+    (void)iterative_depth;
+    (void)count_ambiguous;
 
     move = snewn(solve_state->common->num_total * 4 +2, char);
     c = move;
@@ -1655,6 +1655,17 @@ struct game_ui {
     int hx, hy;                         /* as for solo.c, highlight pos */
     bool hshow, hpencil, hcursor;       /* show state, type, and ?cursor. */
     bool ascii;
+
+    /*
+     * User preference option: if the user right-clicks in a square
+     * and presses a monster key to add/remove a pencil mark, do we
+     * hide the mouse highlight again afterwards?
+     *
+     * Historically our answer was yes. The Android port prefers no.
+     * There are advantages both ways, depending how much you dislike
+     * the highlight cluttering your view. So it's a preference.
+     */
+    bool pencil_keep_highlight;
 };
 
 static game_ui *new_ui(const game_state *state)
@@ -1664,7 +1675,40 @@ static game_ui *new_ui(const game_state *state)
     ui->hx = ui->hy = ui->hshow = ui->hcursor =
         getenv_bool("PUZZLES_SHOW_CURSOR", false);
     ui->ascii = false;
+
+    ui->pencil_keep_highlight = true;
+
     return ui;
+}
+
+static config_item *get_prefs(game_ui *ui)
+{
+    config_item *ret;
+
+    ret = snewn(3, config_item);
+
+    ret[0].name = "Keep cursor after changing pencil marks";
+    ret[0].kw = "pencil-keep-highlight";
+    ret[0].type = C_BOOLEAN;
+    ret[0].u.boolean.bval = ui->pencil_keep_highlight;
+
+    ret[1].name = "Monster representation";
+    ret[1].kw = "monsters";
+    ret[1].type = C_CHOICES;
+    ret[1].u.choices.choicenames = ":Pictures:Letters";
+    ret[1].u.choices.choicekws = ":pictures:letters";
+    ret[1].u.choices.selected = ui->ascii;
+
+    ret[2].name = NULL;
+    ret[2].type = C_END;
+
+    return ret;
+}
+
+static void set_prefs(game_ui *ui, const config_item *cfg)
+{
+    ui->pencil_keep_highlight = cfg[0].u.boolean.bval;
+    ui->ascii = cfg[1].u.choices.selected;
 }
 
 static void free_ui(game_ui *ui) {
@@ -1774,7 +1818,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
 
     if (button == 'a' || button == 'A') {
         ui->ascii = !ui->ascii;
-        return UI_UPDATE;
+        return MOVE_UI_UPDATE;
     }
 
     if (button == 'm' || button == 'M') {
@@ -1792,21 +1836,21 @@ static char *interpret_move(const game_state *state, game_ui *ui,
             if (button == 'g' || button == 'G' || button == '1' || (button == LEFT_BUTTON && on_ghost)) {
                 if (!ui->hcursor) ui->hshow = false;
                 if (state->guess[xi] == 1)
-                    return ui->hcursor ? NULL : UI_UPDATE;
+                    return ui->hcursor ? NULL : MOVE_UI_UPDATE;
                 sprintf(buf,"G%d",xi);
                 return dupstr(buf);
             }
             if (button == 'v' || button == 'V' || button == '2' || (button == LEFT_BUTTON && on_vampire)) {
                 if (!ui->hcursor) ui->hshow = false;
                 if (state->guess[xi] == 2)
-                    return ui->hcursor ? NULL : UI_UPDATE;
+                    return ui->hcursor ? NULL : MOVE_UI_UPDATE;
                 sprintf(buf,"V%d",xi);
                 return dupstr(buf);
             }
             if (button == 'z' || button == 'Z' || button == '3' || (button == LEFT_BUTTON && on_zombie)) {
                 if (!ui->hcursor) ui->hshow = false;
                 if (state->guess[xi] == 4)
-                    return ui->hcursor ? NULL : UI_UPDATE;
+                    return ui->hcursor ? NULL : MOVE_UI_UPDATE;
                 sprintf(buf,"Z%d",xi);
                 return dupstr(buf);
             }
@@ -1814,7 +1858,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
                 button == '0' || button == '\b' ) {
                 if (!ui->hcursor) ui->hshow = false;
                 if (state->guess[xi] == 7 && state->pencils[xi] == 0)
-                    return ui->hcursor ? NULL : UI_UPDATE;
+                    return ui->hcursor ? NULL : MOVE_UI_UPDATE;
                 sprintf(buf,"E%d",xi);
                 return dupstr(buf);
             }
@@ -1834,50 +1878,45 @@ static char *interpret_move(const game_state *state, game_ui *ui,
             }
         ui->hshow = true;
         ui->hcursor = true;
-        return UI_UPDATE;
+        return MOVE_UI_UPDATE;
     }
     if (ui->hshow && button == CURSOR_SELECT) {
         ui->hpencil = !ui->hpencil;
         ui->hcursor = true;
-        return UI_UPDATE;
+        return MOVE_UI_UPDATE;
     }
 
     if (ui->hshow && ui->hpencil) {
         xi = state->common->xinfo[ui->hx + ui->hy*(state->common->params.w+2)];
         if (xi >= 0 && !state->common->fixed[xi]) {
+            buf[0] = '\0';
+
             if (button == 'g' || button == 'G' || button == '1' || (button == LEFT_BUTTON && on_ghost)) {
                 sprintf(buf,"g%d",xi);
-                if (!ui->hcursor) {
-                    ui->hpencil = false;
-                    ui->hshow = false;
-                }
-                return dupstr(buf);
-            }
-            if (button == 'v' || button == 'V' || button == '2' || (button == LEFT_BUTTON && on_vampire)) {
+            } else if (button == 'v' || button == 'V' || button == '2' || (button == LEFT_BUTTON && on_vampire)) {
                 sprintf(buf,"v%d",xi);
-                if (!ui->hcursor) {
-                    ui->hpencil = false;
-                    ui->hshow = false;
-                }
-                return dupstr(buf);
-            }
-            if (button == 'z' || button == 'Z' || button == '3' || (button == LEFT_BUTTON && on_zombie)) {
+            } else if (button == 'z' || button == 'Z' || button == '3' || (button == LEFT_BUTTON && on_zombie)) {
                 sprintf(buf,"z%d",xi);
-                if (!ui->hcursor) {
-                    ui->hpencil = false;
-                    ui->hshow = false;
-                }
-                return dupstr(buf);
-            }
-            if (button == 'e' || button == 'E' || button == CURSOR_SELECT2 ||
-                button == '0' || button == '\b') {
-                if (!ui->hcursor) {
-                    ui->hpencil = false;
-                    ui->hshow = false;
-                }
+            } else if (button == 'e' || button == 'E' ||
+                       button == CURSOR_SELECT2 || button == '0' ||
+                       button == '\b') {
                 if (state->pencils[xi] == 0)
-                    return ui->hcursor ? NULL : UI_UPDATE;
+                    return ui->hcursor ? NULL : MOVE_UI_UPDATE;
                 sprintf(buf,"E%d",xi);
+            }
+
+            if (buf[0]) {
+                /*
+                 * Hide the highlight after a keypress, if it was mouse-
+                 * generated. Also, don't hide it if this move has changed
+                 * pencil marks and the user preference says not to hide the
+                 * highlight in that situation.
+                 */
+                if (!ui->hcursor &&
+                    !(ui->hpencil && ui->pencil_keep_highlight)) {
+                    ui->hpencil = false;
+                    ui->hshow = false;
+                }
                 return dupstr(buf);
             }
         }       
@@ -1896,7 +1935,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
                     ui->hcursor = false;
 #endif
                     ui->hx = gx; ui->hy = gy;
-                    return UI_UPDATE;
+                    return MOVE_UI_UPDATE;
                 }
                 else if (button == RIGHT_BUTTON && g == 7) {
                     ui->hshow = true;
@@ -1906,7 +1945,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
                     ui->hcursor = false;
 #endif
                     ui->hx = gx; ui->hy = gy;
-                    return UI_UPDATE;
+                    return MOVE_UI_UPDATE;
                 }
             }
             else if (ui->hshow) {
@@ -1922,7 +1961,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
                             ui->hcursor = false;
                             ui->hx = 0; ui->hy = 0;
 #endif
-                            return UI_UPDATE;
+                            return MOVE_UI_UPDATE;
                         }
                         else {
                             ui->hshow = true;
@@ -1932,7 +1971,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
                             ui->hcursor = false;
 #endif
                             ui->hx = gx; ui->hy = gy;
-                            return UI_UPDATE;
+                            return MOVE_UI_UPDATE;
                         }
                     }
                     else {
@@ -1945,7 +1984,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
                         ui->hcursor = false;
 #endif
                         ui->hx = gx; ui->hy = gy;
-                        return UI_UPDATE;
+                        return MOVE_UI_UPDATE;
                     }
                 }
                 else if (button == RIGHT_BUTTON) {
@@ -1957,7 +1996,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
                         ui->hcursor = false;
 #endif
                         ui->hx = gx; ui->hy = gy;
-                        return UI_UPDATE;
+                        return MOVE_UI_UPDATE;
                     }
                     else {
                         if (gx == ui->hx && gy == ui->hy) {
@@ -1968,7 +2007,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
                             ui->hcursor = false;
 #endif
                             ui->hx = 0; ui->hy = 0;
-                            return UI_UPDATE;
+                            return MOVE_UI_UPDATE;
                         }
                         else if (g == 7) {
                             ui->hshow = true;
@@ -1978,7 +2017,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
                             ui->hcursor = false;
 #endif
                             ui->hx = gx; ui->hy = gy;
-                            return UI_UPDATE;
+                            return MOVE_UI_UPDATE;
                         }
                     }
                 }
@@ -1991,7 +2030,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
         } else {
             ui->hshow = 0;
             ui->hpencil = 0;
-            return UI_UPDATE;
+            return MOVE_UI_UPDATE;
         }
     }
 
@@ -2199,7 +2238,7 @@ static game_state *execute_move(const game_state *state, const char *move)
 #define PREFERRED_TILE_SIZE 64
 
 static void game_compute_size(const game_params *params, int tilesize,
-                              int *x, int *y)
+                              const game_ui *ui, int *x, int *y)
 {
     /* Ick: fake up `ds->tilesize' for macro expansion purposes */
     struct { int tilesize; } ads, *ds = &ads;
@@ -2864,6 +2903,7 @@ const struct game thegame = {
     free_game,
     true, solve_game,
     true, game_can_format_as_text_now, game_text_format,
+    get_prefs, set_prefs,
     new_ui,
     free_ui,
     NULL, /* encode_ui */

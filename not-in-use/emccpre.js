@@ -41,6 +41,10 @@ var ctx;
 // by js_canvas_end_draw.
 var update_xmin, update_xmax, update_ymin, update_ymax;
 
+// Colour strings to use when drawing, to save converting them from C
+// every time.
+var colours = [];
+
 // Module object for Emscripten. We fill in these parameters to ensure
 // that when main() returns nothing will get cleaned up so we remain
 // able to call the puzzle's various callbacks.
@@ -81,14 +85,14 @@ var update_xmin, update_xmax, update_ymin, update_ymax;
 
 var Module = {
     'preRun': function() {
-        // Merge environment variables from HTML script element.
+        // Merge environment variables from HTML script elements.
         // This means you can add something like this to the HTML:
         // <script id="environment" type="application/json">
         //   { "LOOPY_DEFAULT": "20x10t11dh" }
         // </script>
-        var envscript = document.getElementById("environment");
-        var k, v;
-        if (envscript !== null)
+        var envscript, k, v;
+        for (envscript of document.querySelectorAll(
+            "script#environment, script.environment"))
             for ([k, v] of
                  Object.entries(JSON.parse(envscript.textContent)))
                 ENV[k] = v;
@@ -141,6 +145,11 @@ var dlg_return_sval, dlg_return_ival;
 // process of loading at a time.
 var savefile_read_callback;
 
+// void prefs_load_callback(midend *me, const char *prefs);
+//
+// Callback for passing in preferences data retrieved from localStorage.
+var prefs_load_callback;
+
 // The <ul> object implementing the game-type drop-down, and a list of
 // the sub-lists inside it. Used by js_add_preset().
 var gametypelist = document.getElementById("gametype");
@@ -161,6 +170,7 @@ var permalink_desc = document.getElementById("permalink-desc");
 // The various buttons. Undo and redo are used by js_enable_undo_redo().
 var specific_button = document.getElementById("specific");
 var random_button = document.getElementById("random");
+var prefs_button = document.getElementById("prefs");
 var new_button = document.getElementById("new");
 var restart_button = document.getElementById("restart");
 var undo_button = document.getElementById("undo");
@@ -425,6 +435,10 @@ function initPuzzle() {
         if (dlg_dimmer === null)
             command(9);
     };
+    if (prefs_button) prefs_button.onclick = function(event) {
+        if (dlg_dimmer === null)
+            command(10);
+    };
 
     // 'number' is used for C pointers
     var get_save_file = Module.cwrap('get_save_file', 'number', []);
@@ -660,6 +674,26 @@ function initPuzzle() {
         }
     });
 
+    // Handle "copy" actions.  Browsers don't reliably target the
+    // "copy" event at the canvas when it's focused.  Firefox 102
+    // targets the containing <div> while Chromium 114 targets the
+    // <body>.  So we catch the event at the document level and work
+    // out if it's relevant ourselves.
+    var get_text_format = Module.cwrap('get_text_format', 'number', []);
+    var free_text_format = Module.cwrap('free_text_format', 'void', ['number']);
+    document.addEventListener("copy", function(event) {
+        // Make sure the target is an ancestor of the canvas.  And if
+        // there's a selection assume the user wants to copy that and
+        // not the puzzle.
+        if (event.target.contains(onscreen_canvas) &&
+            window.getSelection().isCollapsed) {
+            var ptr = get_text_format();
+            event.clipboardData.setData('text/plain', UTF8ToString(ptr));
+            event.preventDefault();
+            free_text_format(ptr);
+        }
+    });
+
     // Event handler to fake :focus-within on browsers too old for
     // it (like KaiOS 2.5).  Browsers without :focus-within are also
     // too old for focusin/out events, so we have to use focus events
@@ -682,6 +716,8 @@ function initPuzzle() {
     dlg_return_ival = Module.cwrap('dlg_return_ival', 'void',
                                    ['number','number']);
     timer_callback = Module.cwrap('timer_callback', 'void', ['number']);
+    prefs_load_callback = Module.cwrap('prefs_load_callback', 'void',
+                                       ['number','number']);
 
     if (resizable_div !== null) {
         var resize_handle = document.getElementById("resizehandle");

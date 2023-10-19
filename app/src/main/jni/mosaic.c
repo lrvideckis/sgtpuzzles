@@ -126,15 +126,12 @@ struct game_ui {
     bool in_progress;
     int last_x, last_y, last_state;
     int cur_x, cur_y;
-    int prev_cur_x, prev_cur_y;
     bool cur_visible;
 };
 
 struct game_drawstate {
     int tilesize;
     int *state;
-    int cur_x, cur_y;           /* -1, -1 for no cursor displayed. */
-    int prev_cur_x, prev_cur_y;
 };
 
 static game_params *default_params(void)
@@ -409,7 +406,7 @@ static void count_clues_around(const game_params *params,
 static void mark_around(const game_params *params,
                         struct solution_cell *sol, int x, int y, int mark)
 {
-    int i, j, marked = 0;
+    int i, j;
     struct solution_cell *curr;
 
     for (i = -1; i < 2; i++) {
@@ -418,7 +415,6 @@ static void mark_around(const game_params *params,
             if (curr) {
                 if (curr->cell == STATE_UNMARKED) {
                     curr->cell = mark;
-                    marked++;
                 }
             }
         }
@@ -585,7 +581,7 @@ static bool solve_game_actual(const game_params *params,
     int board_size = params->height * params->width;
     struct solution_cell *sol = snewn(board_size, struct solution_cell);
     bool made_progress = true, error = false;
-    int solved = 0, iter = 0, curr = 0;
+    int solved = 0, curr = 0;
 
     memset(sol, 0, params->height * params->width * sizeof(*sol));
     solved = 0;
@@ -607,7 +603,6 @@ static bool solve_game_actual(const game_params *params,
                 solved += curr;
             }
         }
-        iter++;
     }
     if (sol_return) {
         *sol_return = sol;
@@ -1195,18 +1190,14 @@ static char *interpret_move(const game_state *state, game_ui *ui,
         }
         ui->cur_visible = false;
     } else if (IS_CURSOR_MOVE(button)) {
-        ui->prev_cur_x = ui->cur_x;
-        ui->prev_cur_y = ui->cur_y;
-        move_cursor(button, &ui->cur_x, &ui->cur_y, state->width,
-                    state->height, false);
-        ui->cur_visible = true;
-        return UI_UPDATE;
+        return move_cursor(button, &ui->cur_x, &ui->cur_y, state->width,
+                    state->height, false, &ui->cur_visible);
     } else if (IS_CURSOR_SELECT(button)) {
         if (!ui->cur_visible) {
             ui->cur_x = 0;
             ui->cur_y = 0;
             ui->cur_visible = true;
-            return UI_UPDATE;
+            return MOVE_UI_UPDATE;
         }
 
         if (button == CURSOR_SELECT2) {
@@ -1404,7 +1395,7 @@ static game_state *execute_move(const game_state *state, const char *move)
  */
 
 static void game_compute_size(const game_params *params, int tilesize,
-                              int *x, int *y)
+                              const game_ui *ui, int *x, int *y)
 {
     *x = (params->width + 1) * tilesize;
     *y = (params->height + 1) * tilesize;
@@ -1615,6 +1606,7 @@ const struct game thegame = {
     free_game,
     true, solve_game,
     true, game_can_format_as_text_now, game_text_format,
+    NULL, NULL, /* get_prefs, set_prefs */
     new_ui,
     free_ui,
     NULL, /* encode_ui */

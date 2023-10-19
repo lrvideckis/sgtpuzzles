@@ -673,18 +673,9 @@ static char *interpret_move(const game_state *state, game_ui *ui,
 
     button = button & (~MOD_MASK | MOD_NUM_KEYPAD);
 
-    if (IS_CURSOR_MOVE(button)) {
-        if (button == CURSOR_LEFT && ui->cur_x > 0)
-            ui->cur_x--;
-        if (button == CURSOR_RIGHT && (ui->cur_x+n) < (w))
-            ui->cur_x++;
-        if (button == CURSOR_UP && ui->cur_y > 0)
-            ui->cur_y--;
-        if (button == CURSOR_DOWN && (ui->cur_y+n) < (h))
-            ui->cur_y++;
-        ui->cur_visible = true;
-        return UI_UPDATE;
-    }
+    if (IS_CURSOR_MOVE(button))
+        return move_cursor(button, &ui->cur_x, &ui->cur_y, w-n+1, h-n+1,
+                           false, &ui->cur_visible);
 
     if (button == LEFT_BUTTON || button == RIGHT_BUTTON) {
 	/*
@@ -707,7 +698,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
             dir = (button == CURSOR_SELECT2) ? -1 : +1;
         } else {
             ui->cur_visible = true;
-            return UI_UPDATE;
+            return MOVE_UI_UPDATE;
         }
     } else if (button == 'a' || button == 'A' || button==MOD_NUM_KEYPAD+'7') {
         x = y = 0;
@@ -807,7 +798,7 @@ static game_state *execute_move(const game_state *from, const char *move)
  */
 
 static void game_compute_size(const game_params *params, int tilesize,
-                              int *x, int *y)
+                              const game_ui *ui, int *x, int *y)
 {
     /* Ick: fake up `ds->tilesize' for macro expansion purposes */
     struct { int tilesize; } ads, *ds = &ads;
@@ -1317,6 +1308,7 @@ const struct game thegame = {
     free_game,
     true, solve_game,
     true, game_can_format_as_text_now, game_text_format,
+    NULL, NULL, /* get_prefs, set_prefs */
     new_ui,
     free_ui,
     NULL, /* encode_ui */

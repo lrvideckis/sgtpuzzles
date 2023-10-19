@@ -352,6 +352,7 @@ struct solver_scratch {
     struct findloopstate *fls;
     bool squares_by_number_initialised;
     int *wh_scratch, *pc_scratch, *pc_scratch2, *dc_scratch;
+    DSF *dsf_scratch;
 };
 
 static struct solver_scratch *solver_make_scratch(int n)
@@ -483,6 +484,7 @@ static struct solver_scratch *solver_make_scratch(int n)
     sc->wh_scratch = NULL;
     sc->pc_scratch = sc->pc_scratch2 = NULL;
     sc->dc_scratch = NULL;
+    sc->dsf_scratch = NULL;
 
     return sc;
 }
@@ -510,6 +512,7 @@ static void solver_free_scratch(struct solver_scratch *sc)
     sfree(sc->pc_scratch);
     sfree(sc->pc_scratch2);
     sfree(sc->dc_scratch);
+    dsf_free(sc->dsf_scratch);
     sfree(sc);
 }
 
@@ -1426,21 +1429,23 @@ static bool deduce_forcing_chain(struct solver_scratch *sc)
         sc->pc_scratch2 = snewn(sc->pc, int);
     if (!sc->dc_scratch)
         sc->dc_scratch = snewn(sc->dc, int);
+    if (!sc->dsf_scratch)
+        sc->dsf_scratch = dsf_new_flip(sc->pc);
 
     /*
      * Start by identifying chains of placements which must all occur
      * together if any of them occurs. We do this by making
-     * pc_scratch2 an edsf binding the placements into an equivalence
+     * dsf_scratch a flip dsf binding the placements into an equivalence
      * class for each entire forcing chain, with the two possible sets
      * of dominoes for the chain listed as inverses.
      */
-    dsf_init(sc->pc_scratch2, sc->pc);
+    dsf_reinit(sc->dsf_scratch);
     for (si = 0; si < sc->wh; si++) {
         struct solver_square *sq = &sc->squares[si];
         if (sq->nplacements == 2)
-            edsf_merge(sc->pc_scratch2,
-                       sq->placements[0]->index,
-                       sq->placements[1]->index, true);
+            dsf_merge_flip(sc->dsf_scratch,
+                           sq->placements[0]->index,
+                           sq->placements[1]->index, true);
     }
     /*
      * Now read out the whole dsf into pc_scratch, flattening its
@@ -1453,7 +1458,7 @@ static bool deduce_forcing_chain(struct solver_scratch *sc)
      */
     for (pi = 0; pi < sc->pc; pi++) {
         bool inv;
-        int c = edsf_canonify(sc->pc_scratch2, pi, &inv);
+        int c = dsf_canonify_flip(sc->dsf_scratch, pi, &inv);
         sc->pc_scratch[pi] = c * 2 + (inv ? 1 : 0);
     }
 
@@ -2818,7 +2823,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
         int d1, d2;
 
         if (tx < 0 || tx >= w || ty < 0 || ty >= h)
-            return NULL;
+            return MOVE_UNUSED;
 
         /*
          * Now we know which square the click was in, decide which
@@ -2836,29 +2841,26 @@ static char *interpret_move(const game_state *state, game_ui *ui,
         else if (abs(dy) > abs(dx) && dy > 0 && ty+1 < h)
             d1 = t, d2 = t + w;        /* clicked in top half of domino */
         else
-            return NULL;
+            return MOVE_NO_EFFECT;     /* clicked precisely on a diagonal */
 
         /*
          * We can't mark an edge next to any domino.
          */
         if (button == RIGHT_BUTTON &&
             (state->grid[d1] != d1 || state->grid[d2] != d2))
-            return NULL;
+            return MOVE_NO_EFFECT;
 
         ui->cur_visible = false;
         sprintf(buf, "%c%d,%d", (int)(button == RIGHT_BUTTON ? 'E' : 'D'), d1, d2);
         return dupstr(buf);
     } else if (IS_CURSOR_MOVE(button)) {
-	ui->cur_visible = true;
-
-        move_cursor(button, &ui->cur_x, &ui->cur_y, 2*w-1, 2*h-1, false);
-
-	return UI_UPDATE;
+        return move_cursor(button, &ui->cur_x, &ui->cur_y, 2*w-1, 2*h-1, false,
+                    &ui->cur_visible);
     } else if (IS_CURSOR_SELECT(button)) {
         int d1, d2;
 
 	if (!((ui->cur_x ^ ui->cur_y) & 1))
-	    return NULL;	       /* must have exactly one dimension odd */
+            return MOVE_NO_EFFECT; /* must have exactly one dimension odd */
 	d1 = (ui->cur_y / 2) * w + (ui->cur_x / 2);
 	d2 = ((ui->cur_y+1) / 2) * w + ((ui->cur_x+1) / 2);
 
@@ -2867,14 +2869,14 @@ static char *interpret_move(const game_state *state, game_ui *ui,
          */
         if (button == CURSOR_SELECT2 &&
             (state->grid[d1] != d1 || state->grid[d2] != d2))
-            return NULL;
+            return MOVE_NO_EFFECT;
 
         sprintf(buf, "%c%d,%d", (int)(button == CURSOR_SELECT2 ? 'E' : 'D'), d1, d2);
         return dupstr(buf);
     } else if (isdigit(button)) {
         int n = state->params.n, num = button - '0';
         if (num > n) {
-            return NULL;
+            return MOVE_UNUSED;
         } else if (ui->highlight_1 == num) {
             ui->highlight_1 = -1;
         } else if (ui->highlight_2 == num) {
@@ -2884,12 +2886,12 @@ static char *interpret_move(const game_state *state, game_ui *ui,
         } else if (ui->highlight_2 == -1) {
             ui->highlight_2 = num;
         } else {
-            return NULL;
+            return MOVE_NO_EFFECT;
         }
-        return UI_UPDATE;
+        return MOVE_UI_UPDATE;
     }
 
-    return NULL;
+    return MOVE_UNUSED;
 }
 
 static game_state *execute_move(const game_state *state, const char *move)
@@ -3050,7 +3052,7 @@ static game_state *execute_move(const game_state *state, const char *move)
  */
 
 static void game_compute_size(const game_params *params, int tilesize,
-                              int *x, int *y)
+                              const game_ui *ui, int *x, int *y)
 {
     int n = params->n, w = n+2, h = n+1;
 
@@ -3402,19 +3404,21 @@ static int game_status(const game_state *state)
 }
 
 #ifndef NO_PRINTING
-static void game_print_size(const game_params *params, float *x, float *y)
+static void game_print_size(const game_params *params, const game_ui *ui,
+                            float *x, float *y)
 {
     int pw, ph;
 
     /*
      * I'll use 6mm squares by default.
      */
-    game_compute_size(params, 600, &pw, &ph);
+    game_compute_size(params, 600, ui, &pw, &ph);
     *x = pw / 100.0F;
     *y = ph / 100.0F;
 }
 
-static void game_print(drawing *dr, const game_state *state, int tilesize)
+static void game_print(drawing *dr, const game_state *state, const game_ui *ui,
+                       int tilesize)
 {
     int w = state->w, h = state->h;
     int c, x, y;
@@ -3472,6 +3476,7 @@ const struct game thegame = {
     free_game,
     true, solve_game,
     true, game_can_format_as_text_now, game_text_format,
+    NULL, NULL, /* get_prefs, set_prefs */
     new_ui,
     free_ui,
     NULL, /* encode_ui */

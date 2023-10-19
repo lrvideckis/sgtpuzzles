@@ -1592,6 +1592,7 @@ static int lay_dominoes(game_state *state, random_state *rs, int *scratch)
     }
 
     debug(("Laid %d dominoes, total %d dominoes.\n", nlaid, state->wh/2));
+    (void)nlaid;
     game_debug(state, "Final layout");
     return ret;
 }
@@ -1869,14 +1870,13 @@ static char *interpret_move(const game_state *state, game_ui *ui,
     char *nullret = NULL, buf[80], movech;
     enum { CYCLE_MAGNET, CYCLE_NEUTRAL } action;
 
-    if (IS_CURSOR_MOVE(button)) {
-        move_cursor(button, &ui->cur_x, &ui->cur_y, state->w, state->h, false);
-        ui->cur_visible = true;
-        return UI_UPDATE;
-    } else if (IS_CURSOR_SELECT(button)) {
+    if (IS_CURSOR_MOVE(button))
+        return move_cursor(button, &ui->cur_x, &ui->cur_y, state->w, state->h,
+                           false, &ui->cur_visible);
+    else if (IS_CURSOR_SELECT(button)) {
         if (!ui->cur_visible) {
             ui->cur_visible = true;
-            return UI_UPDATE;
+            return MOVE_UI_UPDATE;
         }
         action = (button == CURSOR_SELECT) ? CYCLE_MAGNET : CYCLE_NEUTRAL;
         gx = ui->cur_x;
@@ -1885,7 +1885,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
                (button == LEFT_BUTTON || button == RIGHT_BUTTON)) {
         if (ui->cur_visible) {
             ui->cur_visible = false;
-            nullret = UI_UPDATE;
+            nullret = MOVE_UI_UPDATE;
         }
         action = (button == LEFT_BUTTON) ? CYCLE_MAGNET : CYCLE_NEUTRAL;
     } else if ((button == LEFT_BUTTON || button == RIGHT_BUTTON) && is_clue(state, gx, gy)) {
@@ -1992,7 +1992,7 @@ badmove:
  */
 
 static void game_compute_size(const game_params *params, int tilesize,
-                              int *x, int *y)
+                              const game_ui *ui, int *x, int *y)
 {
     /* Ick: fake up `ds->tilesize' for macro expansion purposes */
     struct { int tilesize; } ads, *ds = &ads;
@@ -2369,19 +2369,21 @@ static int game_status(const game_state *state)
 }
 
 #ifndef NO_PRINTING
-static void game_print_size(const game_params *params, float *x, float *y)
+static void game_print_size(const game_params *params, const game_ui *ui,
+                            float *x, float *y)
 {
     int pw, ph;
 
     /*
      * I'll use 6mm squares by default.
      */
-    game_compute_size(params, 600, &pw, &ph);
+    game_compute_size(params, 600, ui, &pw, &ph);
     *x = pw / 100.0F;
     *y = ph / 100.0F;
 }
 
-static void game_print(drawing *dr, const game_state *state, int tilesize)
+static void game_print(drawing *dr, const game_state *state, const game_ui *ui,
+                       int tilesize)
 {
     int w = state->w, h = state->h;
     int ink = print_mono_colour(dr, 0);
@@ -2486,6 +2488,7 @@ const struct game thegame = {
     free_game,
     true, solve_game,
     true, game_can_format_as_text_now, game_text_format,
+    NULL, NULL, /* get_prefs, set_prefs */
     new_ui,
     free_ui,
     NULL, /* encode_ui */

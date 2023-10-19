@@ -422,7 +422,7 @@ static void debug_state(const char *desc, game_state *state) {
     sfree(dbg);
 }
 
-static void connect_if_same(game_state *state, int *dsf, int i1, int i2)
+static void connect_if_same(game_state *state, DSF *dsf, int i1, int i2)
 {
     int c1, c2;
 
@@ -434,13 +434,13 @@ static void connect_if_same(game_state *state, int *dsf, int i1, int i2)
     dsf_merge(dsf, c1, c2);
 }
 
-static void connect_dsf(game_state *state, int *dsf)
+static void connect_dsf(game_state *state, DSF *dsf)
 {
     int x, y, i;
 
     /* Construct a dsf array for connected blocks; connections
      * tracked to right and down. */
-    dsf_init(dsf, state->n);
+    dsf_reinit(dsf);
     for (x = 0; x < state->w; x++) {
         for (y = 0; y < state->h; y++) {
             i = y*state->w + x;
@@ -499,7 +499,7 @@ static int check_rowcol(game_state *state, int starti, int di, int sz, unsigned 
 
 static bool check_complete(game_state *state, unsigned flags)
 {
-    int *dsf = snewn(state->n, int);
+    DSF *dsf = dsf_new(state->n);
     int x, y, i, error = 0, nwhite, w = state->w, h = state->h;
 
     if (flags & CC_MARK_ERRORS) {
@@ -563,7 +563,7 @@ static bool check_complete(game_state *state, unsigned flags)
         }
     }
 
-    sfree(dsf);
+    dsf_free(dsf);
     return !(error > 0);
 }
 
@@ -1309,9 +1309,10 @@ found:
     return j;
 }
 
-static char *new_game_desc(const game_params *params, random_state *rs,
+static char *new_game_desc(const game_params *params_orig, random_state *rs,
 			   char **aux, bool interactive)
 {
+    game_params *params = dup_params(params_orig);
     game_state *state = blank_game(params->w, params->h);
     game_state *tosolve = blank_game(params->w, params->h);
     int i, j, *scratch, *rownums, *colnums, x, y, ntries;
@@ -1319,6 +1320,12 @@ static char *new_game_desc(const game_params *params, random_state *rs,
     char *ret;
     digit *latin;
     struct solver_state *ss = solver_state_new(state);
+
+    /* Downgrade difficulty to Easy for puzzles so tiny that they aren't
+     * possible to generate at Tricky. These are 2x2, 2x3 and 3x3, i.e.
+     * any puzzle that doesn't have one dimension at least 4. */
+    if ((w < 4 || h < 4) && params->diff > DIFF_EASY)
+        params->diff = DIFF_EASY;
 
     scratch = snewn(state->n, int);
     rownums = snewn(h*o, int);
@@ -1414,6 +1421,7 @@ randomise:
 
     free_game(tosolve);
     free_game(state);
+    free_params(params);
     solver_state_free(ss);
     sfree(scratch);
     sfree(rownums);
@@ -1456,6 +1464,28 @@ static game_ui *new_ui(const game_state *state)
     ui->show_black_nums = false;
 
     return ui;
+}
+
+static config_item *get_prefs(game_ui *ui)
+{
+    config_item *ret;
+
+    ret = snewn(2, config_item);
+
+    ret[0].name = "Show numbers on black squares";
+    ret[0].kw = "show-black-nums";
+    ret[0].type = C_BOOLEAN;
+    ret[0].u.boolean.bval = ui->show_black_nums;
+
+    ret[1].name = NULL;
+    ret[1].type = C_END;
+
+    return ret;
+}
+
+static void set_prefs(game_ui *ui, const config_item *cfg)
+{
+    ui->show_black_nums = cfg[0].u.boolean.bval;
 }
 
 static void free_ui(game_ui *ui)
@@ -1513,11 +1543,10 @@ static char *interpret_move(const game_state *state, game_ui *ui,
     int i, x = FROMCOORD(mx), y = FROMCOORD(my);
     enum { NONE, TOGGLE_BLACK, TOGGLE_CIRCLE, UI } action = NONE;
 
-    if (IS_CURSOR_MOVE(button)) {
-        move_cursor(button, &ui->cx, &ui->cy, state->w, state->h, true);
-        ui->cshow = true;
-        action = UI;
-    } else if (IS_CURSOR_SELECT(button)) {
+    if (IS_CURSOR_MOVE(button))
+        return move_cursor(button, &ui->cx, &ui->cy, state->w, state->h, true,
+                           &ui->cshow);
+    else if (IS_CURSOR_SELECT(button)) {
         x = ui->cx; y = ui->cy;
         if (!ui->cshow) {
             action = UI;
@@ -1535,14 +1564,14 @@ static char *interpret_move(const game_state *state, game_ui *ui,
         }
         if (!INGRID(state, x, y)) {
             ui->show_black_nums = !ui->show_black_nums;
-            action = UI; /* this wants to be a per-game option. */
+            action = UI;
         } else if (button == LEFT_BUTTON) {
             action = TOGGLE_BLACK;
         } else if (button == RIGHT_BUTTON) {
             action = TOGGLE_CIRCLE;
         }
     }
-    if (action == UI) return UI_UPDATE;
+    if (action == UI) return MOVE_UI_UPDATE;
 
     if (action == TOGGLE_BLACK || action == TOGGLE_CIRCLE) {
         i = y * state->w + x;
@@ -1605,7 +1634,7 @@ badmove:
  */
 
 static void game_compute_size(const game_params *params, int tilesize,
-                              int *x, int *y)
+                              const game_ui *ui, int *x, int *y)
 {
     /* Ick: fake up `ds->tilesize' for macro expansion purposes */
     struct { int tilesize; } ads, *ds = &ads;
@@ -1795,17 +1824,19 @@ static int game_status(const game_state *state)
 }
 
 #ifndef NO_PRINTING
-static void game_print_size(const game_params *params, float *x, float *y)
+static void game_print_size(const game_params *params, const game_ui *ui,
+                            float *x, float *y)
 {
     int pw, ph;
 
     /* 8mm squares by default. */
-    game_compute_size(params, 800, &pw, &ph);
+    game_compute_size(params, 800, ui, &pw, &ph);
     *x = pw / 100.0F;
     *y = ph / 100.0F;
 }
 
-static void game_print(drawing *dr, const game_state *state, int tilesize)
+static void game_print(drawing *dr, const game_state *state, const game_ui *ui,
+                       int tilesize)
 {
     int ink = print_mono_colour(dr, 0);
     int paper = print_mono_colour(dr, 1);
@@ -1863,6 +1894,7 @@ const struct game thegame = {
     free_game,
     true, solve_game,
     true, game_can_format_as_text_now, game_text_format,
+    get_prefs, set_prefs,
     new_ui,
     free_ui,
     NULL, /* encode_ui */

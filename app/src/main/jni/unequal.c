@@ -1448,6 +1448,17 @@ static char *solve_game(const game_state *state, const game_state *currstate,
 struct game_ui {
     int hx, hy;                         /* as for solo.c, highlight pos */
     bool hshow, hpencil, hcursor;       /* show state, type, and ?cursor. */
+
+    /*
+     * User preference option: if the user right-clicks in a square
+     * and presses a number key to add/remove a pencil mark, do we
+     * hide the mouse highlight again afterwards?
+     *
+     * Historically our answer was yes. The Android port prefers no.
+     * There are advantages both ways, depending how much you dislike
+     * the highlight cluttering your view. So it's a preference.
+     */
+    bool pencil_keep_highlight;
 };
 
 static game_ui *new_ui(const game_state *state)
@@ -1457,6 +1468,8 @@ static game_ui *new_ui(const game_state *state)
     ui->hx = ui->hy = 0;
     ui->hpencil = false;
     ui->hshow = ui->hcursor = getenv_bool("PUZZLES_SHOW_CURSOR", false);
+
+    ui->pencil_keep_highlight = true;
 
     return ui;
 }
@@ -1469,6 +1482,28 @@ static void free_ui(game_ui *ui)
 static void android_cursor_visibility(game_ui *ui, int visible)
 {
     ui->hshow = visible;
+}
+
+static config_item *get_prefs(game_ui *ui)
+{
+    config_item *ret;
+
+    ret = snewn(2, config_item);
+
+    ret[0].name = "Keep cursor after changing pencil marks";
+    ret[0].kw = "pencil-keep-highlight";
+    ret[0].type = C_BOOLEAN;
+    ret[0].u.boolean.bval = ui->pencil_keep_highlight;
+
+    ret[1].name = NULL;
+    ret[1].type = C_END;
+
+    return ret;
+}
+
+static void set_prefs(game_ui *ui, const config_item *cfg)
+{
+    ui->pencil_keep_highlight = cfg[0].u.boolean.bval;
 }
 
 static bool game_changed_state(game_ui *ui, const game_state *oldstate,
@@ -1572,7 +1607,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
             /* Android should stay in cursor mode */
             ui->hcursor = false;
 #endif
-            return UI_UPDATE;
+            return MOVE_UI_UPDATE;
         }
         if (button == RIGHT_BUTTON) {
             /* pencil highlighting for non-filled squares */
@@ -1597,12 +1632,12 @@ static char *interpret_move(const game_state *state, game_ui *ui,
             /* Android should stay in cursor mode */
             ui->hcursor = false;
 #endif
-            return UI_UPDATE;
+            return MOVE_UI_UPDATE;
         }
     } else if (button == LEFT_BUTTON || button == RIGHT_BUTTON) {
         ui->hshow = 0;
         ui->hpencil = 0;
-        return UI_UPDATE;
+        return MOVE_UI_UPDATE;
     }
     /* N.B. only uppercase trumps data entry */
     if (button == 'H')
@@ -1614,7 +1649,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
 	if (shift_or_control) {
 	    int nx = ui->hx, ny = ui->hy, i;
             bool self;
-	    move_cursor(button, &nx, &ny, ds->order, ds->order, false);
+            move_cursor(button, &nx, &ny, ds->order, ds->order, false, NULL);
 	    ui->hshow = true;
             ui->hcursor = true;
 
@@ -1622,12 +1657,12 @@ static char *interpret_move(const game_state *state, game_ui *ui,
 				  ny != ui->hy + adjthan[i].dy); ++i);
 
 	    if (i == 4)
-		return UI_UPDATE; /* invalid direction, i.e. out of
+		return MOVE_UI_UPDATE; /* invalid direction, i.e. out of
                                    * the board */
 
 	    if (!(GRID(state, flags, ui->hx, ui->hy) & adjthan[i].f ||
 		  GRID(state, flags, nx,     ny    ) & adjthan[i].fo))
-		return UI_UPDATE; /* no clue to toggle */
+		return MOVE_UI_UPDATE; /* no clue to toggle */
 
 	    if (state->mode == MODE_ADJACENT)
 		self = (adjthan[i].dx >= 0 && adjthan[i].dy >= 0);
@@ -1643,16 +1678,15 @@ static char *interpret_move(const game_state *state, game_ui *ui,
 
 	    return dupstr(buf);
 	} else {
-	    move_cursor(button, &ui->hx, &ui->hy, ds->order, ds->order, false);
-	    ui->hshow = true;
             ui->hcursor = true;
-	    return UI_UPDATE;
+            return move_cursor(button, &ui->hx, &ui->hy, ds->order, ds->order,
+                               false, &ui->hshow);
 	}
     }
     if (ui->hshow && IS_CURSOR_SELECT(button)) {
         ui->hpencil = !ui->hpencil;
         ui->hcursor = true;
-        return UI_UPDATE;
+        return MOVE_UI_UPDATE;
     }
 
     n = c2n(button, state->order);
@@ -1683,7 +1717,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
                 /* ... expect to remove the cursor in mouse mode. */
                 if (!ui->hcursor) {
                     ui->hshow = false;
-                    return UI_UPDATE;
+                    return MOVE_UI_UPDATE;
                 }
                 return NULL;
             }
@@ -1692,7 +1726,14 @@ static char *interpret_move(const game_state *state, game_ui *ui,
         sprintf(buf, "%c%d,%d,%d",
                 (char)(ui->hpencil && n > 0 ? 'P' : 'R'), ui->hx, ui->hy, n);
 
-        if (!ui->hcursor) ui->hshow = false;
+        /*
+         * Hide the highlight after a keypress, if it was mouse-
+         * generated. Also, don't hide it if this move has changed
+         * pencil marks and the user preference says not to hide the
+         * highlight in that situation.
+         */
+        if (!ui->hcursor && !(ui->hpencil && ui->pencil_keep_highlight))
+            ui->hshow = false;
 
         return dupstr(buf);
     } while(0);
@@ -1781,7 +1822,7 @@ badmove:
 #define DRAW_SIZE (TILE_SIZE*ds->order + GAP_SIZE*(ds->order-1) + BORDER*2)
 
 static void game_compute_size(const game_params *params, int tilesize,
-                              int *x, int *y)
+                              const game_ui *ui, int *x, int *y)
 {
     /* Ick: fake up `ds->tilesize' for macro expansion purposes */
     struct { int tilesize, order; } ads, *ds = &ads;
@@ -2145,17 +2186,19 @@ static int game_status(const game_state *state)
 }
 
 #ifndef NO_PRINTING
-static void game_print_size(const game_params *params, float *x, float *y)
+static void game_print_size(const game_params *params, const game_ui *ui,
+                            float *x, float *y)
 {
     int pw, ph;
 
     /* 10mm squares by default, roughly the same as Grauniad. */
-    game_compute_size(params, 1000, &pw, &ph);
+    game_compute_size(params, 1000, ui, &pw, &ph);
     *x = pw / 100.0F;
     *y = ph / 100.0F;
 }
 
-static void game_print(drawing *dr, const game_state *state, int tilesize)
+static void game_print(drawing *dr, const game_state *state, const game_ui *ui,
+                       int tilesize)
 {
     int ink = print_mono_colour(dr, 0);
     int x, y, o = state->order, ox, oy, n;
@@ -2215,6 +2258,7 @@ const struct game thegame = {
     free_game,
     true, solve_game,
     true, game_can_format_as_text_now, game_text_format,
+    get_prefs, set_prefs,
     new_ui,
     free_ui,
     NULL, /* encode_ui */

@@ -963,7 +963,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
                             int x, int y, int button)
 {
     int w = state->w, h = state->h, wh = w * h;
-    char buf[80], *nullret = NULL;
+    char buf[80], *nullret = MOVE_UNUSED;
 
     if (button == LEFT_BUTTON || IS_CURSOR_SELECT(button)) {
         int tx, ty;
@@ -974,7 +974,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
             tx = ui->cx; ty = ui->cy;
             ui->cdraw = true;
         }
-        nullret = UI_UPDATE;
+        nullret = MOVE_UI_UPDATE;
 
         if (tx >= 0 && tx < w && ty >= 0 && ty < h) {
             /*
@@ -992,25 +992,12 @@ static char *interpret_move(const game_state *state, game_ui *ui,
                 sprintf(buf, "M%d,%d", tx, ty);
                 return dupstr(buf);
             } else {
-                return NULL;
+                return MOVE_NO_EFFECT;
             }
         }
-    }
-    else if (IS_CURSOR_MOVE(button)) {
-        int dx = 0, dy = 0;
-        switch (button) {
-        case CURSOR_UP:         dy = -1; break;
-        case CURSOR_DOWN:       dy = 1; break;
-        case CURSOR_RIGHT:      dx = 1; break;
-        case CURSOR_LEFT:       dx = -1; break;
-        default: assert(!"shouldn't get here");
-        }
-        ui->cx += dx; ui->cy += dy;
-        ui->cx = min(max(ui->cx, 0), state->w - 1);
-        ui->cy = min(max(ui->cy, 0), state->h - 1);
-        ui->cdraw = true;
-        nullret = UI_UPDATE;
-    }
+    } else if (IS_CURSOR_MOVE(button))
+        nullret = move_cursor(button, &ui->cx, &ui->cy, state->w, state->h,
+                              false, &ui->cdraw);
 
     return nullret;
 }
@@ -1068,7 +1055,7 @@ static game_state *execute_move(const game_state *from, const char *move)
  */
 
 static void game_compute_size(const game_params *params, int tilesize,
-                              int *x, int *y)
+                              const game_ui *ui, int *x, int *y)
 {
     /* Ick: fake up `ds->tilesize' for macro expansion purposes */
     struct { int tilesize; } ads, *ds = &ads;
@@ -1350,6 +1337,7 @@ const struct game thegame = {
     free_game,
     true, solve_game,
     true, game_can_format_as_text_now, game_text_format,
+    NULL, NULL, /* get_prefs, set_prefs */
     new_ui,
     free_ui,
     NULL, /* encode_ui */

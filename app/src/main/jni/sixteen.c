@@ -632,7 +632,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
     if (IS_CURSOR_MOVE(button) || pad) {
         if (!ui->cur_visible) {
             ui->cur_visible = true;
-            return UI_UPDATE;
+            return MOVE_UI_UPDATE;
         }
 
         if (control || shift || ui->cur_mode) {
@@ -640,9 +640,9 @@ static char *interpret_move(const game_state *state, game_ui *ui,
             if (x < 0 || x >= state->w || y < 0 || y >= state->h)
                 return NULL;
             move_cursor(button | pad, &x, &y,
-                        state->w, state->h, false);
+                        state->w, state->h, false, NULL);
             move_cursor(button | pad, &xwrap, &ywrap,
-                        state->w, state->h, true);
+                        state->w, state->h, true, NULL);
 
             if (x != xwrap) {
                 sprintf(buf, "R%d,%c1", y, x ? '+' : '-');
@@ -663,7 +663,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
             int x = ui->cur_x + 1, y = ui->cur_y + 1;
 
             move_cursor(button | pad, &x, &y,
-                        state->w + 2, state->h + 2, false);
+                        state->w + 2, state->h + 2, false, NULL);
 
             if (x == 0 && y == 0) {
                 int t = ui->cur_x;
@@ -687,7 +687,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
             }
 
             ui->cur_visible = true;
-            return UI_UPDATE;
+            return MOVE_UI_UPDATE;
         }
     }
 
@@ -705,11 +705,11 @@ static char *interpret_move(const game_state *state, game_ui *ui,
                 const enum cursor_mode m = (button == CURSOR_SELECT2 ?
                                             lock_position : lock_tile);
                 ui->cur_mode = (ui->cur_mode == m ? unlocked : m);
-                return UI_UPDATE;
+                return MOVE_UI_UPDATE;
             }
         } else {
             ui->cur_visible = true;
-            return UI_UPDATE;
+            return MOVE_UI_UPDATE;
         }
     } else {
 	return NULL;
@@ -724,7 +724,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
     else if (cy == state->h && cx >= 0 && cx < state->w)
         dy = +1, dx = 0;
     else
-        return UI_UPDATE;            /* invalid click location */
+        return MOVE_UI_UPDATE;            /* invalid click location */
 
     /* reverse direction if right hand button is pressed */
     if (button == RIGHT_BUTTON || button == CURSOR_SELECT2) {
@@ -808,7 +808,7 @@ static game_state *execute_move(const game_state *from, const char *move)
  */
 
 static void game_compute_size(const game_params *params, int tilesize,
-                              int *x, int *y)
+                              const game_ui *ui, int *x, int *y)
 {
     /* Ick: fake up `ds->tilesize' for macro expansion purposes */
     struct { int tilesize; } ads, *ds = &ads;
@@ -1200,6 +1200,7 @@ const struct game thegame = {
     free_game,
     true, solve_game,
     true, game_can_format_as_text_now, game_text_format,
+    NULL, NULL, /* get_prefs, set_prefs */
     new_ui,
     free_ui,
     NULL, /* encode_ui */

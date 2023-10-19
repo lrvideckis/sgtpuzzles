@@ -85,6 +85,7 @@
       <w>blockwise</w>
       <w>blrtlrtbb</w>
       <w>bmax</w>
+      <w>bmdx</w>
       <w>brborder</w>
       <w>breen</w>
       <w>bscol</w>
@@ -141,6 +142,7 @@
       <w>compat</w>
       <w>continue'd</w>
       <w>coord</w>
+      <w>coords</w>
       <w>coordsize</w>
       <w>copyfn</w>
       <w>copynode</w>
@@ -285,6 +287,7 @@
       <w>fbuf</w>
       <w>fcount</w>
       <w>fffd</w>
+      <w>ffff</w>
       <w>fffffffful</w>
       <w>fffffi</w>
       <w>ffffii</w>
@@ -620,6 +623,7 @@
       <w>nikoli</w>
       <w>nikoli's</w>
       <w>nkeys</w>
+      <w>nklp</w>
       <w>nlaid</w>
       <w>nlarge</w>
       <w>nleft</w>
@@ -817,6 +821,7 @@
       <w>scopy</w>
       <w>scratchsize</w>
       <w>scratchsz</w>
+      <w>screengrab</w>
       <w>screenshot</w>
       <w>scroller</w>
       <w>sctx</w>
@@ -1066,6 +1071,7 @@
       <w>xffff</w>
       <w>xffffff</w>
       <w>xhighlight</w>
+      <w>xlint</w>
       <w>xmask</w>
       <w>xmax</w>
       <w>xmin</w>

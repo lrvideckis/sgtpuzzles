@@ -21,8 +21,7 @@
  *    out of your browser to (e.g.) email to me as a bug report, but
  *    for just resuming a game you were in the middle of, you'd
  *    probably rather have a nice simple 'quick save' and 'quick load'
- *    button pair. Also, that might be a useful place to store
- *    preferences, if I ever get round to writing a preferences UI.
+ *    button pair.
  *
  *  - this is a downright silly idea, but it does occur to me that if
  *    I were to write a PDF output driver for the Puzzles printing
@@ -54,7 +53,7 @@ extern int js_add_preset_submenu(int menuid, const char *name);
 extern int js_get_selected_preset(void);
 extern void js_select_preset(int n);
 extern void js_default_colour(float *output);
-extern void js_set_background_colour(const char *bg);
+extern void js_set_colour(int colour_number, const char *colour_string);
 extern void js_get_date_64(unsigned *p);
 extern void js_update_permalinks(const char *desc, const char *seed);
 extern void js_enable_undo_redo(bool undo, bool redo);
@@ -64,21 +63,18 @@ extern void js_deactivate_timer(void);
 extern void js_canvas_start_draw(void);
 extern void js_canvas_draw_update(int x, int y, int w, int h);
 extern void js_canvas_end_draw(void);
-extern void js_canvas_draw_rect(int x, int y, int w, int h,
-                                const char *colour);
+extern void js_canvas_draw_rect(int x, int y, int w, int h, int colour);
 extern void js_canvas_clip_rect(int x, int y, int w, int h);
 extern void js_canvas_unclip(void);
 extern void js_canvas_draw_line(float x1, float y1, float x2, float y2,
-                                int width, const char *colour);
+                                int width, int colour);
 extern void js_canvas_draw_poly(const int *points, int npoints,
-                                const char *fillcolour,
-                                const char *outlinecolour);
+                                int fillcolour, int outlinecolour);
 extern void js_canvas_draw_circle(int x, int y, int r,
-                                  const char *fillcolour,
-                                  const char *outlinecolour);
+                                  int fillcolour, int outlinecolour);
 extern int js_canvas_find_font_midpoint(int height, bool monospaced);
 extern void js_canvas_draw_text(int x, int y, int halign,
-                                const char *colptr, int height,
+                                int colour, int height,
                                 bool monospaced, const char *text);
 extern int js_canvas_new_blitter(int w, int h);
 extern void js_canvas_free_blitter(int id);
@@ -101,6 +97,9 @@ extern void js_focus_canvas(void);
 
 extern bool js_savefile_read(void *buf, int len);
 
+extern void js_save_prefs(const char *);
+extern void js_load_prefs(midend *);
+
 /*
  * These functions are called from JavaScript, so their prototypes
  * need to be kept in sync with emccpre.js.
@@ -112,6 +111,8 @@ bool key(int keycode, const char *key, const char *chr, int location,
          bool shift, bool ctrl);
 void timer_callback(double tplus);
 void command(int n);
+char *get_text_format(void);
+void free_save_file(char *buffer);
 char *get_save_file(void);
 void free_save_file(char *buffer);
 void load_game(void);
@@ -120,6 +121,11 @@ void dlg_return_ival(int index, int val);
 void resize_puzzle(int w, int h);
 void restore_puzzle_size(int w, int h);
 void rescale_puzzle(void);
+
+/*
+ * Internal forward references.
+ */
+static void save_prefs(midend *me);
 
 /*
  * Call JS to get the date, and use that to initialise our random
@@ -173,12 +179,6 @@ static int strnullcmp(const char *a, const char *b)
         return a != NULL ? +1 : b != NULL ? -1 : 0;
     return strcmp(a, b);
 }
-
-/*
- * HTMLish names for the colours allocated by the puzzle.
- */
-static char **colour_strings;
-static int ncolours;
 
 /*
  * The global midend object.
@@ -287,7 +287,7 @@ bool mousedown(int x, int y, int button)
 
     button = (button == 0 ? LEFT_BUTTON :
               button == 1 ? MIDDLE_BUTTON : RIGHT_BUTTON);
-    midend_process_key(me, x, y, button, &handled);
+    handled = midend_process_key(me, x, y, button) != PKR_UNUSED;
     post_move();
     return handled;
 }
@@ -298,7 +298,7 @@ bool mouseup(int x, int y, int button)
 
     button = (button == 0 ? LEFT_RELEASE :
               button == 1 ? MIDDLE_RELEASE : RIGHT_RELEASE);
-    midend_process_key(me, x, y, button, &handled);
+    handled = midend_process_key(me, x, y, button) != PKR_UNUSED;
     post_move();
     return handled;
 }
@@ -309,7 +309,7 @@ bool mousemove(int x, int y, int buttons)
                   buttons & 4 ? RIGHT_DRAG : LEFT_DRAG);
     bool handled;
 
-    midend_process_key(me, x, y, button, &handled);
+    handled = midend_process_key(me, x, y, button) != PKR_UNUSED;
     post_move();
     return handled;
 }
@@ -327,7 +327,7 @@ bool key(int keycode, const char *key, const char *chr, int location,
     #define DOM_KEY_LOCATION_RIGHT    2
     #define DOM_KEY_LOCATION_NUMPAD   3
     int keyevent = -1;
-    bool handled;
+    int process_key_result;
 
     if (!strnullcmp(key, "Backspace") || !strnullcmp(key, "Delete") ||
         !strnullcmp(key, "Del"))
@@ -414,9 +414,16 @@ bool key(int keycode, const char *key, const char *chr, int location,
         if (ctrl) keyevent |= MOD_CTRL;
         if (location == DOM_KEY_LOCATION_NUMPAD) keyevent |= MOD_NUM_KEYPAD;
 
-        midend_process_key(me, 0, 0, keyevent, &handled);
+        process_key_result = midend_process_key(me, 0, 0, keyevent);
         post_move();
-        return handled;
+        /*
+         * Treat Backspace specially because that's expected on KaiOS.
+         * https://developer.kaiostech.com/docs/design-guide/key
+         */
+        if (process_key_result == PKR_NO_EFFECT &&
+            !strnullcmp(key, "Backspace"))
+            return false;
+        return process_key_result != PKR_UNUSED;
     }
     return false; /* Event not handled, because we don't even recognise it. */
 }
@@ -480,42 +487,38 @@ static void js_draw_text(void *handle, int x, int y, int fonttype,
     else
         halign = 0;
 
-    js_canvas_draw_text(x, y, halign, colour_strings[colour],
+    js_canvas_draw_text(x, y, halign, colour,
                         fontsize, fonttype == FONT_FIXED, text);
 }
 
 static void js_draw_rect(void *handle, int x, int y, int w, int h, int colour)
 {
-    js_canvas_draw_rect(x, y, w, h, colour_strings[colour]);
+    js_canvas_draw_rect(x, y, w, h, colour);
 }
 
 static void js_draw_line(void *handle, int x1, int y1, int x2, int y2,
                          int colour)
 {
-    js_canvas_draw_line(x1, y1, x2, y2, 1, colour_strings[colour]);
+    js_canvas_draw_line(x1, y1, x2, y2, 1, colour);
 }
 
 static void js_draw_thick_line(void *handle, float thickness,
                                float x1, float y1, float x2, float y2,
                                int colour)
 {
-    js_canvas_draw_line(x1, y1, x2, y2, thickness, colour_strings[colour]);
+    js_canvas_draw_line(x1, y1, x2, y2, thickness, colour);
 }
 
 static void js_draw_poly(void *handle, const int *coords, int npoints,
                          int fillcolour, int outlinecolour)
 {
-    js_canvas_draw_poly(coords, npoints,
-                        fillcolour >= 0 ? colour_strings[fillcolour] : NULL,
-                        colour_strings[outlinecolour]);
+    js_canvas_draw_poly(coords, npoints, fillcolour, outlinecolour);
 }
 
 static void js_draw_circle(void *handle, int cx, int cy, int radius,
                            int fillcolour, int outlinecolour)
 {
-    js_canvas_draw_circle(cx, cy, radius,
-                          fillcolour >= 0 ? colour_strings[fillcolour] : NULL,
-                          colour_strings[outlinecolour]);
+    js_canvas_draw_circle(cx, cy, radius, fillcolour, outlinecolour);
 }
 
 struct blitter {
@@ -743,10 +746,20 @@ static void cfg_end(bool use_results)
              * open for the user to adjust them and try again.
              */
             js_error_box(err);
+        } else if (cfg_which == CFG_PREFS) {
+            /*
+             * Acceptable settings for user preferences: enact them
+             * without blowing away the current game.
+             */
+            resize();
+            midend_redraw(me);
+            free_cfg(cfg);
+            js_dialog_cleanup();
+            save_prefs(me);
         } else {
             /*
-             * New settings are fine; start a new game and close the
-             * dialog.
+             * Acceptable settings for the remaining configuration
+             * types: start a new game and close the dialog.
              */
             select_appropriate_preset();
             midend_new_game(me);
@@ -821,7 +834,7 @@ void command(int n)
         post_move();
         break;
       case 5:                          /* New Game */
-        midend_process_key(me, 0, 0, UI_NEWGAME, NULL);
+        midend_process_key(me, 0, 0, UI_NEWGAME);
         post_move();
         js_focus_canvas();
         break;
@@ -831,12 +844,12 @@ void command(int n)
         js_focus_canvas();
         break;
       case 7:                          /* Undo */
-        midend_process_key(me, 0, 0, UI_UNDO, NULL);
+        midend_process_key(me, 0, 0, UI_UNDO);
         post_move();
         js_focus_canvas();
         break;
       case 8:                          /* Redo */
-        midend_process_key(me, 0, 0, UI_REDO, NULL);
+        midend_process_key(me, 0, 0, UI_REDO);
         post_move();
         js_focus_canvas();
         break;
@@ -849,7 +862,20 @@ void command(int n)
         post_move();
         js_focus_canvas();
         break;
+      case 10:                         /* user preferences */
+        cfg_start(CFG_PREFS);
+        break;
     }
+}
+
+char *get_text_format(void)
+{
+    return midend_text_format(me);
+}
+
+void free_text_format(char *buffer)
+{
+    sfree(buffer);
 }
 
 /* ----------------------------------------------------------------------
@@ -899,17 +925,12 @@ void free_save_file(char *buffer)
     sfree(buffer);
 }
 
-struct savefile_read_ctx {
-    const char *buffer;
-    int len_remaining;
-};
-
 static bool savefile_read(void *vctx, void *buf, int len)
 {
     return js_savefile_read(buf, len);
 }
 
-void load_game()
+void load_game(void)
 {
     const char *err;
 
@@ -931,6 +952,64 @@ void load_game()
 }
 
 /* ----------------------------------------------------------------------
+ * Functions to load and save preferences, calling out to JS to access
+ * the appropriate localStorage slot.
+ */
+
+static void save_prefs(midend *me)
+{
+    struct savefile_write_ctx ctx;
+    size_t size;
+
+    /* First pass, to count up the size */
+    ctx.buffer = NULL;
+    ctx.pos = 0;
+    midend_save_prefs(me, savefile_write, &ctx);
+    size = ctx.pos;
+
+    /* Second pass, to actually write out the data. As with
+     * get_save_file, we append a terminating \0. */
+    ctx.buffer = snewn(size+1, char);
+    ctx.pos = 0;
+    midend_save_prefs(me, savefile_write, &ctx);
+    assert(ctx.pos == size);
+    ctx.buffer[ctx.pos] = '\0';
+
+    js_save_prefs(ctx.buffer);
+
+    sfree(ctx.buffer);
+}
+
+struct prefs_read_ctx {
+    const char *buffer;
+    size_t pos, len;
+};
+
+static bool prefs_read(void *vctx, void *buf, int len)
+{
+    struct prefs_read_ctx *ctx = (struct prefs_read_ctx *)vctx;
+
+    if (len < 0)
+        return false;
+    if (ctx->len - ctx->pos < len)
+        return false;
+    memcpy(buf, ctx->buffer + ctx->pos, len);
+    ctx->pos += len;
+    return true;
+}
+
+void prefs_load_callback(midend *me, const char *prefs)
+{
+    struct prefs_read_ctx ctx;
+
+    ctx.buffer = prefs;
+    ctx.len = strlen(prefs);
+    ctx.pos = 0;
+
+    midend_load_prefs(me, prefs_read, &ctx);
+}
+
+/* ----------------------------------------------------------------------
  * Setup function called at page load time. It's called main() because
  * that's the most convenient thing in Emscripten, but it's not main()
  * in the usual sense of bounding the program's entire execution.
@@ -942,7 +1021,7 @@ int main(int argc, char **argv)
 {
     const char *param_err;
     float *colours;
-    int i;
+    int i, ncolours;
 
     /*
      * Initialise JavaScript event handlers.
@@ -953,6 +1032,7 @@ int main(int argc, char **argv)
      * Instantiate a midend.
      */
     me = midend_new(NULL, &thegame, &js_drawing, NULL);
+    js_load_prefs(me);
 
     /*
      * Chuck in the HTML fragment ID if we have one (trimming the
@@ -1024,17 +1104,14 @@ int main(int argc, char **argv)
      * hex ID strings.
      */
     colours = midend_colours(me, &ncolours);
-    colour_strings = snewn(ncolours, char *);
     for (i = 0; i < ncolours; i++) {
         char col[40];
         sprintf(col, "#%02x%02x%02x",
                 (unsigned)(0.5F + 255 * colours[i*3+0]),
                 (unsigned)(0.5F + 255 * colours[i*3+1]),
                 (unsigned)(0.5F + 255 * colours[i*3+2]));
-        colour_strings[i] = dupstr(col);
+        js_set_colour(i, col);
     }
-    /* Put the background colour in a CSS variable. */
-    js_set_background_colour(colour_strings[0]);
 
     /*
      * Request notification when the game ids change (e.g. if the user

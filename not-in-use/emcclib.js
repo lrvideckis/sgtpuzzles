@@ -181,14 +181,15 @@ mergeInto(LibraryManager.library, {
     },
 
     /*
-     * void js_set_background_colour(const char *bg);
+     * void js_set_colour(int colour_number, char const *colour_string);
      *
-     * Record the puzzle background colour in a CSS variable so
-     * the style sheet can use it if it wants.
+     * Record a colour string used by the puzzle.
      */
-    js_set_background_colour: function(bgptr) {
-        document.documentElement.style.setProperty("--puzzle-background",
-                                                   UTF8ToString(bgptr));
+    js_set_colour: function(colour_number, colour_string) {
+        colours[colour_number] = UTF8ToString(colour_string);
+        if (colour_number == 0)
+            document.documentElement.style.setProperty("--puzzle-background",
+                                                       colours[colour_number]);
     },
 
     /*
@@ -332,13 +333,12 @@ mergeInto(LibraryManager.library, {
     },
 
     /*
-     * void js_canvas_draw_rect(int x, int y, int w, int h,
-     *                          const char *colour);
+     * void js_canvas_draw_rect(int x, int y, int w, int h, int colour);
      * 
      * Draw a rectangle.
      */
-    js_canvas_draw_rect: function(x, y, w, h, colptr) {
-        ctx.fillStyle = UTF8ToString(colptr);
+    js_canvas_draw_rect: function(x, y, w, h, colour) {
+        ctx.fillStyle = colours[colour];
         ctx.fillRect(x, y, w, h);
     },
 
@@ -365,7 +365,7 @@ mergeInto(LibraryManager.library, {
 
     /*
      * void js_canvas_draw_line(float x1, float y1, float x2, float y2,
-     *                          int width, const char *colour);
+     *                          int width, int colour);
      * 
      * Draw a line. We must adjust the coordinates by 0.5 because
      * Javascript's canvas coordinates appear to be pixel corners,
@@ -375,7 +375,7 @@ mergeInto(LibraryManager.library, {
      * Postscriptish drawing frameworks).
      */
     js_canvas_draw_line: function(x1, y1, x2, y2, width, colour) {
-        colour = UTF8ToString(colour);
+        colour = colours[colour];
 
         ctx.beginPath();
         ctx.moveTo(x1 + 0.5, y1 + 0.5);
@@ -392,8 +392,7 @@ mergeInto(LibraryManager.library, {
 
     /*
      * void js_canvas_draw_poly(int *points, int npoints,
-     *                          const char *fillcolour,
-     *                          const char *outlinecolour);
+     *                          int fillcolour, int outlinecolour);
      * 
      * Draw a polygon.
      */
@@ -405,35 +404,34 @@ mergeInto(LibraryManager.library, {
             ctx.lineTo(getValue(pointptr+8*i  , 'i32') + 0.5,
                        getValue(pointptr+8*i+4, 'i32') + 0.5);
         ctx.closePath();
-        if (fill != 0) {
-            ctx.fillStyle = UTF8ToString(fill);
+        if (fill >= 0) {
+            ctx.fillStyle = colours[fill];
             ctx.fill();
         }
         ctx.lineWidth = '1';
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
-        ctx.strokeStyle = UTF8ToString(outline);
+        ctx.strokeStyle = colours[outline];
         ctx.stroke();
     },
 
     /*
      * void js_canvas_draw_circle(int x, int y, int r,
-     *                            const char *fillcolour,
-     *                            const char *outlinecolour);
+     *                            int fillcolour, int outlinecolour);
      * 
      * Draw a circle.
      */
     js_canvas_draw_circle: function(x, y, r, fill, outline) {
         ctx.beginPath();
         ctx.arc(x + 0.5, y + 0.5, r, 0, 2*Math.PI);
-        if (fill != 0) {
-            ctx.fillStyle = UTF8ToString(fill);
+        if (fill >= 0) {
+            ctx.fillStyle = colours[fill];
             ctx.fill();
         }
         ctx.lineWidth = '1';
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
-        ctx.strokeStyle = UTF8ToString(outline);
+        ctx.strokeStyle = colours[outline];
         ctx.stroke();
     },
 
@@ -458,6 +456,12 @@ mergeInto(LibraryManager.library, {
      * per (font,height) pair.
      */
     js_canvas_find_font_midpoint: function(height, monospaced) {
+        if (height == 0) {
+            // Handle this degenerate case by hand. Otherwise we end
+            // up passing height=0 to the getImageData call below,
+            // causing browsers to report errors.
+            return 0;
+        }
 
         // Resolve the font into a string.
         var ctx1 = onscreen_canvas.getContext('2d', { alpha: false });
@@ -512,10 +516,10 @@ mergeInto(LibraryManager.library, {
      * alignment is handled here, since we can get the canvas draw
      * function to do it for us with almost no extra effort.
      */
-    js_canvas_draw_text: function(x, y, halign, colptr, fontsize, monospaced,
+    js_canvas_draw_text: function(x, y, halign, colour, fontsize, monospaced,
                                   text) {
         canvas_set_font(ctx, fontsize, monospaced);
-        ctx.fillStyle = UTF8ToString(colptr);
+        ctx.fillStyle = colours[colour];
         ctx.textAlign = (halign == 0 ? 'left' :
                          halign == 1 ? 'center' : 'right');
         ctx.textBaseline = 'alphabetic';
@@ -608,7 +612,7 @@ mergeInto(LibraryManager.library, {
      * alone and return false.
      */
     js_canvas_get_preferred_size: function(wp, hp) {
-        if (document.readyState == "complete" && containing_div !== null) {
+        if (containing_div !== null) {
             var dpr = window.devicePixelRatio || 1;
             setValue(wp, containing_div.clientWidth * dpr, "i32");
             setValue(hp, containing_div.clientHeight * dpr, "i32");
@@ -792,5 +796,54 @@ mergeInto(LibraryManager.library, {
      */
     js_savefile_read: function(buf, len) {
         return savefile_read_callback(buf, len);
+    },
+
+    /*
+     * void js_save_prefs(const char *);
+     *
+     * Write a buffer of serialised preferences data into localStorage.
+     */
+    js_save_prefs: function(buf) {
+        var prefsdata = UTF8ToString(buf);
+        try {
+            localStorage.setItem(location.pathname + " preferences", prefsdata);
+        } catch (error) {
+            // Tell the user their preferences have not been saved.
+            console.error(error);
+            alert("Saving of preferences failed: " + error.message);
+        }
+    },
+
+    /*
+     * void js_load_prefs(midend *);
+     *
+     * Retrieve preferences data from localStorage. If there is any,
+     * pass it back in as a string, via prefs_load_callback.
+     */
+    js_load_prefs: function(me) {
+        function load_prefs_from_string(prefsdata) {
+            if (prefsdata !== undefined && prefsdata !== null) {
+                var lenbytes = lengthBytesUTF8(prefsdata) + 1;
+                var dest = _malloc(lenbytes);
+                if (dest != 0) {
+                    stringToUTF8(prefsdata, dest, lenbytes);
+                    prefs_load_callback(me, dest);
+                    _free(dest);
+                }
+            }
+        }
+        // Load any default preferences embedded in HTML.
+        for (var prefsscript of
+             document.querySelectorAll("script.preferences"))
+            load_prefs_from_string(prefsscript.textContent);
+        // Load saved preferences if they exist.
+        try {
+            load_prefs_from_string(
+                localStorage.getItem(location.pathname + " preferences"));
+        } catch (error) {
+            // Log the error but otherwise pretend the settings were
+            // absent.
+            console.warn(error);
+        }
     }
 });

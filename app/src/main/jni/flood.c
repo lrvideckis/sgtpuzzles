@@ -843,35 +843,26 @@ static char *interpret_move(const game_state *state, game_ui *ui,
 {
     int w = state->w, h = state->h;
     int tx = -1, ty = -1, move = -1;
+    char *nullret = MOVE_NO_EFFECT;
 
     if (button == LEFT_BUTTON) {
 	tx = FROMCOORD(x);
         ty = FROMCOORD(y);
-        ui->cursor_visible = false;
-    } else if (button == CURSOR_LEFT && ui->cx > 0) {
-        ui->cx--;
-        ui->cursor_visible = true;
-        return UI_UPDATE;
-    } else if (button == CURSOR_RIGHT && ui->cx+1 < w) {
-        ui->cx++;
-        ui->cursor_visible = true;
-        return UI_UPDATE;
-    } else if (button == CURSOR_UP && ui->cy > 0) {
-        ui->cy--;
-        ui->cursor_visible = true;
-        return UI_UPDATE;
-    } else if (button == CURSOR_DOWN && ui->cy+1 < h) {
-        ui->cy++;
-        ui->cursor_visible = true;
-        return UI_UPDATE;
+        if (ui->cursor_visible) {
+            ui->cursor_visible = false;
+            nullret = MOVE_UI_UPDATE;
+        }
+    } else if (IS_CURSOR_MOVE(button)) {
+        return move_cursor(button, &ui->cx, &ui->cy, w, h, false,
+                           &ui->cursor_visible);
     } else if (button == CURSOR_SELECT) {
         tx = ui->cx;
         ty = ui->cy;
-    } else if (button == CURSOR_SELECT2 &&
-               state->soln && state->solnpos < state->soln->nmoves) {
-	move = state->soln->moves[state->solnpos];
+    } else if (button == CURSOR_SELECT2) {
+        if (state->soln && state->solnpos < state->soln->nmoves)
+            move = state->soln->moves[state->solnpos];
     } else {
-        return NULL;
+        return MOVE_UNUSED;
     }
 
     if (tx >= 0 && tx < w && ty >= 0 && ty < h &&
@@ -884,7 +875,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
         return dupstr(buf);
     }
 
-    return NULL;
+    return nullret;
 }
 
 static game_state *execute_move(const game_state *state, const char *move)
@@ -987,7 +978,7 @@ static game_state *execute_move(const game_state *state, const char *move)
  */
 
 static void game_compute_size(const game_params *params, int tilesize,
-                              int *x, int *y)
+                              const game_ui *ui, int *x, int *y)
 {
     /* Ick: fake up `ds->tilesize' for macro expansion purposes */
     struct { int tilesize; } ads, *ds = &ads;
@@ -1114,31 +1105,33 @@ static void draw_tile(drawing *dr, game_drawstate *ds,
         colour += COL_1;
     draw_rect(dr, tx, ty, TILESIZE, TILESIZE, colour);
 
-    if (tile & BORDER_L)
-        draw_rect(dr, tx, ty,
-                  SEP_WIDTH, TILESIZE, COL_SEPARATOR);
-    if (tile & BORDER_R)
-        draw_rect(dr, tx + TILESIZE - SEP_WIDTH, ty,
-                  SEP_WIDTH, TILESIZE, COL_SEPARATOR);
-    if (tile & BORDER_U)
-        draw_rect(dr, tx, ty,
-                  TILESIZE, SEP_WIDTH, COL_SEPARATOR);
-    if (tile & BORDER_D)
-        draw_rect(dr, tx, ty + TILESIZE - SEP_WIDTH,
-                  TILESIZE, SEP_WIDTH, COL_SEPARATOR);
+    if (SEP_WIDTH > 0) {
+        if (tile & BORDER_L)
+            draw_rect(dr, tx, ty,
+                      SEP_WIDTH, TILESIZE, COL_SEPARATOR);
+        if (tile & BORDER_R)
+            draw_rect(dr, tx + TILESIZE - SEP_WIDTH, ty,
+                      SEP_WIDTH, TILESIZE, COL_SEPARATOR);
+        if (tile & BORDER_U)
+            draw_rect(dr, tx, ty,
+                      TILESIZE, SEP_WIDTH, COL_SEPARATOR);
+        if (tile & BORDER_D)
+            draw_rect(dr, tx, ty + TILESIZE - SEP_WIDTH,
+                      TILESIZE, SEP_WIDTH, COL_SEPARATOR);
 
-    if (tile & CORNER_UL)
-        draw_rect(dr, tx, ty,
-                  SEP_WIDTH, SEP_WIDTH, COL_SEPARATOR);
-    if (tile & CORNER_UR)
-        draw_rect(dr, tx + TILESIZE - SEP_WIDTH, ty,
-                  SEP_WIDTH, SEP_WIDTH, COL_SEPARATOR);
-    if (tile & CORNER_DL)
-        draw_rect(dr, tx, ty + TILESIZE - SEP_WIDTH,
-                  SEP_WIDTH, SEP_WIDTH, COL_SEPARATOR);
-    if (tile & CORNER_DR)
-        draw_rect(dr, tx + TILESIZE - SEP_WIDTH, ty + TILESIZE - SEP_WIDTH,
-                  SEP_WIDTH, SEP_WIDTH, COL_SEPARATOR);
+        if (tile & CORNER_UL)
+            draw_rect(dr, tx, ty,
+                      SEP_WIDTH, SEP_WIDTH, COL_SEPARATOR);
+        if (tile & CORNER_UR)
+            draw_rect(dr, tx + TILESIZE - SEP_WIDTH, ty,
+                      SEP_WIDTH, SEP_WIDTH, COL_SEPARATOR);
+        if (tile & CORNER_DL)
+            draw_rect(dr, tx, ty + TILESIZE - SEP_WIDTH,
+                      SEP_WIDTH, SEP_WIDTH, COL_SEPARATOR);
+        if (tile & CORNER_DR)
+            draw_rect(dr, tx + TILESIZE - SEP_WIDTH, ty + TILESIZE - SEP_WIDTH,
+                      SEP_WIDTH, SEP_WIDTH, COL_SEPARATOR);
+    }
 
     if (tile & CURSOR)
         draw_rect_outline(dr, tx + CURSOR_INSET, ty + CURSOR_INSET,
@@ -1378,6 +1371,7 @@ const struct game thegame = {
     free_game,
     true, solve_game,
     true, game_can_format_as_text_now, game_text_format,
+    NULL, NULL, /* get_prefs, set_prefs */
     new_ui,
     free_ui,
     NULL, /* encode_ui */

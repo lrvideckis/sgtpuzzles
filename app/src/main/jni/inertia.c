@@ -1644,20 +1644,20 @@ static char *interpret_move(const game_state *state, game_ui *ui,
 	dir = state->soln->list[state->solnpos];
 
     if (dir < 0)
-	return NULL;
+	return MOVE_UNUSED;
 
     /*
      * Reject the move if we can't make it at all due to a wall
      * being in the way.
      */
     if (AT(w, h, state->grid, state->px+DX(dir), state->py+DY(dir)) == WALL)
-	return NULL;
+	return MOVE_NO_EFFECT;
 
     /*
      * Reject the move if we're dead!
      */
     if (state->dead)
-	return NULL;
+	return MOVE_NO_EFFECT;
 
     /*
      * Otherwise, we can make the move. All we need to specify is
@@ -1777,7 +1777,7 @@ static game_state *execute_move(const game_state *state, const char *move)
  */
 
 static void game_compute_size(const game_params *params, int tilesize,
-                              int *x, int *y)
+                              const game_ui *ui, int *x, int *y)
 {
     /* Ick: fake up `ds->tilesize' for macro expansion purposes */
     struct { int tilesize; } ads, *ds = &ads;
@@ -2246,6 +2246,7 @@ const struct game thegame = {
     free_game,
     true, solve_game,
     true, game_can_format_as_text_now, game_text_format,
+    NULL, NULL, /* get_prefs, set_prefs */
     new_ui,
     free_ui,
     encode_ui,

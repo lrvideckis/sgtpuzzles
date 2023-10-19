@@ -72,11 +72,10 @@ static jobject ARROW_MODE_NONE = NULL,
 	ARROW_MODE_ARROWS_LEFT_RIGHT_CLICK = NULL,
 	ARROW_MODE_DIAGONALS = NULL;
 
-static jclass GameEngineImpl = NULL, BackendName = NULL, MenuEntry = NULL, IllegalArgumentException = NULL, IllegalStateException = NULL, RectF = NULL, Point = NULL, CustomDialogBuilder = NULL, KeysResult = NULL;
+static jclass GameEngineImpl = NULL, BackendName = NULL, MenuEntry = NULL, IllegalArgumentException = NULL, IllegalStateException = NULL, RectF = NULL, Point = NULL, ConfigBuilder = NULL, KeysResult = NULL;
 static jfieldID frontendField;
 static jmethodID
 	newGameEngineImpl,
-	newDialogBuilder,
 	newKeysResult,
 	blitterAlloc,
 	blitterFree,
@@ -86,9 +85,10 @@ static jmethodID
 	purgingStates,
 	allowFlash,
 	clipRect,
-	dialogAddString,
-	dialogAddBoolean,
-	dialogAddChoices,
+	setTitle,
+	addString,
+	addBoolean,
+	addChoices,
 	dialogShow,
 	drawCircle,
 	drawLine,
@@ -332,14 +332,14 @@ const struct drawing_api android_drawing = {
         android_inertia_follow,
 };
 
-JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_keyEvent(JNIEnv *env, jobject gameEngine, jint x, jint y, jint keyVal)
+JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_keyEvent(JNIEnv *env, jobject gameEngine, jint x, jint y, jint keyVal)
 {
 	ENV_TO_FE_OR_RETURN()
 	if (fe->ox == -1 || keyVal < 0) return;
-	midend_process_key(fe->me, x - fe->ox, y - fe->oy, keyVal, NULL);
+	midend_process_key(fe->me, x - fe->ox, y - fe->oy, keyVal);
 }
 
-JNIEXPORT jfloat JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_suggestDensity(JNIEnv *env, jobject gameEngine, jint viewWidth, jint viewHeight)
+JNIEXPORT jfloat JNICALL Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_suggestDensity(JNIEnv *env, jobject gameEngine, jint viewWidth, jint viewHeight)
 {
 	ENV_TO_FE_OR_RETURN(1.f)
 	int defaultW = INT_MAX, defaultH = INT_MAX;
@@ -348,7 +348,7 @@ JNIEXPORT jfloat JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_suggest
 	return max(1.f, min(floor(((double)viewWidth) / defaultW), floor(((double)viewHeight) / defaultH)));
 }
 
-JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_resizeEvent(JNIEnv *env, jobject gameEngine, jint viewWidth, jint viewHeight)
+JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_resizeEvent(JNIEnv *env, jobject gameEngine, jint viewWidth, jint viewHeight)
 {
 	ENV_TO_FE_OR_RETURN()
 	int w = viewWidth, h = viewHeight;
@@ -361,7 +361,7 @@ JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_resizeEve
 	midend_force_redraw(fe->me);
 }
 
-JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_timerTick(JNIEnv *env, jobject gameEngine)
+JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_timerTick(JNIEnv *env, jobject gameEngine)
 {
 	ENV_TO_FE_OR_RETURN()
 	if (! fe->timer_active) return;
@@ -391,7 +391,7 @@ void activate_timer(frontend *fe)
 	fe->timer_active = true;
 }
 
-JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_resetTimerBaseline(JNIEnv *env, jobject gameEngine)
+JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_resetTimerBaseline(JNIEnv *env, jobject gameEngine)
 {
 	ENV_TO_FE_OR_RETURN()
 	gettimeofday(&fe->last_time, NULL);
@@ -412,7 +412,7 @@ config_item* configItemWithName(frontend* fe, JNIEnv *env, jstring js)
 	return ret;
 }
 
-JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_configSetString(JNIEnv *env, jobject gameEngine, jstring name, jstring s)
+JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_configSetString(JNIEnv *env, jobject gameEngine, jstring name, jstring s, jboolean isPrefs)
 {
 	ENV_TO_FE_OR_THROW_ISE("Internal error in configSetString",)
 	config_item *i = configItemWithName(fe, env, name);
@@ -420,23 +420,26 @@ JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_configSet
 	sfree(i->u.string.sval);
 	i->u.string.sval = dupstr(newval);
 	(*env)->ReleaseStringUTFChars(env, s, newval);
+	if (isPrefs) midend_set_config(fe->me, CFG_PREFS, fe->cfg);
 }
 
-JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_configSetBool(JNIEnv *env, jobject gameEngine, jstring name, jint selected)
+JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_configSetBool(JNIEnv *env, jobject gameEngine, jstring name, jboolean selected, jboolean isPrefs)
 {
 	ENV_TO_FE_OR_THROW_ISE("Internal error in configSetBool",)
 	config_item *i = configItemWithName(fe, env, name);
 	i->u.boolean.bval = selected != 0 ? true : false;
+	if (isPrefs) midend_set_config(fe->me, CFG_PREFS, fe->cfg);
 }
 
-JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_configSetChoice(JNIEnv *env, jobject gameEngine, jstring name, jint selected)
+JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_configSetChoice(JNIEnv *env, jobject gameEngine, jstring name, jint selected, jboolean isPrefs)
 {
 	ENV_TO_FE_OR_THROW_ISE("Internal error in configSetChoice",)
 	config_item *i = configItemWithName(fe, env, name);
 	i->u.choices.selected = selected;
+	if (isPrefs) midend_set_config(fe->me, CFG_PREFS, fe->cfg);
 }
 
-JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_solveEvent(JNIEnv *env, jobject gameEngine)
+JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_solveEvent(JNIEnv *env, jobject gameEngine)
 {
 	ENV_TO_FE_OR_RETURN()
 	const char *msg = midend_solve(fe->me);
@@ -446,30 +449,37 @@ JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_solveEven
 	throwIllegalArgumentException(env, msg);
 }
 
-JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_restartEvent(JNIEnv *env, jobject gameEngine)
+JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_restartEvent(JNIEnv *env, jobject gameEngine)
 {
 	ENV_TO_FE_OR_RETURN()
 	midend_restart_game(fe->me);
 }
 
-JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_configEvent(JNIEnv *env, jobject gameEngine, jobject activityCallbacks, jint whichEvent, jobject context, jobject backendEnum)
+JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_configEvent(JNIEnv *env, jobject gameEngine, jint whichEvent, jobject builder)
 {
 	ENV_TO_FE_OR_RETURN()
 	char *title;
 	config_item *i;
 	fe->cfg = midend_get_config(fe->me, whichEvent, &title);
 	fe->cfg_which = whichEvent;
-	jstring js = (*env)->NewStringUTF(env, title);
-	if( js == NULL ) return;
-	jobject builder = (*env)->NewObject(env, CustomDialogBuilder, newDialogBuilder, context, gameEngine, activityCallbacks, whichEvent, js, backendEnum);
+	jstring titleJS = (*env)->NewStringUTF(env, title);
+	if (titleJS == NULL) return;
+	(*env)->CallVoidMethod(env, builder, setTitle, titleJS);
+	(*env)->DeleteLocalRef(env, titleJS);
+	sfree(title);
 	if ((*env)->ExceptionCheck(env)) return;
+	bool isPrefs = whichEvent == CFG_PREFS;
 	for (i = fe->cfg; i->type != C_END; i++) {
 		jstring name = NULL;
 		if (i->name) {
 			name = (*env)->NewStringUTF(env, i->name);
 			if (!name) return;
 		}
-		jstring sval = NULL;
+		jstring sval = NULL, kw = NULL, kws = NULL;
+		if (isPrefs) {
+			kw = (*env)->NewStringUTF(env, i->kw);
+			if (!kw) return;
+		}
 		switch (i->type) {
 			case C_STRING:
 				if (i->u.string.sval) {
@@ -477,7 +487,7 @@ JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_configEve
 					if (!sval) return;
 				}
 				if ((*env)->ExceptionCheck(env)) return;
-				(*env)->CallVoidMethod(env, builder, dialogAddString, whichEvent, name, sval);
+				(*env)->CallVoidMethod(env, builder, addString, whichEvent, isPrefs ? kw : name, name, sval);
 				break;
 			case C_CHOICES:
 				if (i->u.choices.choicenames) {
@@ -485,21 +495,33 @@ JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_configEve
 					if (!sval) return;
 				}
 				if ((*env)->ExceptionCheck(env)) return;
-				(*env)->CallVoidMethod(env, builder, dialogAddChoices, whichEvent, name, sval, i->u.choices.selected);
-				break;
-			case C_BOOLEAN: case C_END: default:
+				if (isPrefs && i->u.choices.choicekws) {
+					kws = (*env)->NewStringUTF(env, i->u.choices.choicekws);
+					if (!kws) return;
+				}
 				if ((*env)->ExceptionCheck(env)) return;
-				(*env)->CallVoidMethod(env, builder, dialogAddBoolean, whichEvent, name, i->u.boolean.bval);
+				(*env)->CallVoidMethod(env, builder, addChoices, whichEvent,
+						isPrefs ? kw : name, name, sval, kws ? kws : sval,
+						i->u.choices.selected);
+				break;
+			case C_BOOLEAN:
+				if ((*env)->ExceptionCheck(env)) return;
+				(*env)->CallVoidMethod(env, builder, addBoolean, whichEvent,
+						isPrefs ? kw : name, name, i->u.boolean.bval);
+				break;
+			default:
+				throwIllegalStateException(env, "Unknown config item type");
 				break;
 		}
 		if (name) (*env)->DeleteLocalRef(env, name);
 		if (sval) (*env)->DeleteLocalRef(env, sval);
+		if (kws) (*env)->DeleteLocalRef(env, kws);
 	}
 	if ((*env)->ExceptionCheck(env)) return;
 	(*env)->CallVoidMethod(env, builder, dialogShow);
 }
 
-JNIEXPORT jstring JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_configOK(JNIEnv *env, jobject gameEngine)
+JNIEXPORT jstring JNICALL Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_configOK(JNIEnv *env, jobject gameEngine)
 {
 	ENV_TO_FE_OR_THROW_ISE("Internal error in configOK", NULL)
 	char *encoded;
@@ -551,17 +573,17 @@ jstring getDescOrSeedFromDialog(JNIEnv *env, jobject gameEngine, int mode)
 	return ret;
 }
 
-JNIEXPORT jstring JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_getFullGameIDFromDialog(JNIEnv *env, jobject gameEngine)
+__attribute__((unused)) JNIEXPORT jstring JNICALL Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_getFullGameIDFromDialog(JNIEnv *env, jobject gameEngine)
 {
 	return getDescOrSeedFromDialog(env, gameEngine, CFG_DESC);
 }
 
-JNIEXPORT jstring JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_getFullSeedFromDialog(JNIEnv *env, jobject gameEngine)
+__attribute__((unused)) JNIEXPORT jstring JNICALL Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_getFullSeedFromDialog(JNIEnv *env, jobject gameEngine)
 {
 	return getDescOrSeedFromDialog(env, gameEngine, CFG_SEED);
 }
 
-JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_configCancel(JNIEnv *env, jobject gameEngine)
+JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_configCancel(JNIEnv *env, jobject gameEngine)
 {
 	ENV_TO_FE_OR_RETURN()
 	free_cfg(fe->cfg);
@@ -585,7 +607,7 @@ void android_serialise_write(void *ctx, const void *buf, int len)
 	(*env)->DeleteLocalRef(env, bytesJava);
 }
 
-JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_serialise(JNIEnv *env, jobject gameEngine, jobject baos)
+JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_serialise(JNIEnv *env, jobject gameEngine, jobject baos)
 {
 	ENV_TO_FE_OR_RETURN()
 	struct serialise_ctx sctx;
@@ -611,7 +633,34 @@ bool android_deserialise_read(void *ctx, void *buf, int len)
 	return l == len;
 }
 
-jobject deserialiseOrIdentify(JNIEnv *env, frontend *new_fe, jstring s, jboolean identifyOnly) {
+JNIEXPORT void JNICALL
+Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_serialisePrefs(JNIEnv *env, jobject gameEngine,
+							       jobject baos) {
+    ENV_TO_FE_OR_THROW_ISE("Internal error in serialisePrefs",)
+    struct serialise_ctx sctx;
+    sctx.env = env;
+    sctx.baos = baos;
+    midend_save_prefs(fe->me, android_serialise_write, &sctx);
+}
+
+void deserialisePrefs(JNIEnv *env, frontend *fe, jstring prefs) {
+    if (prefs == NULL) return;
+    const char * c = (*env)->GetStringUTFChars(env, prefs, NULL);
+    struct deserialise_ctx dctx;
+    dctx.deserialise_read_ptr = c;
+    dctx.deserialise_read_len = strlen(dctx.deserialise_read_ptr);
+    midend_load_prefs(fe->me, android_deserialise_read, &dctx);
+    (*env)->ReleaseStringUTFChars(env, prefs, c);
+}
+
+void JNICALL
+Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_deserialisePrefs(JNIEnv *env, jobject gameEngine,
+								 jstring prefs) {
+    ENV_TO_FE_OR_THROW_ISE("Internal error in deserialisePrefs",)
+    deserialisePrefs(env, fe, prefs);
+}
+
+jobject deserialiseOrIdentify(JNIEnv *env, frontend *new_fe, jstring s, jboolean identifyOnly, jstring initialPrefs) {
 	const char * c = (*env)->GetStringUTFChars(env, s, NULL);
 	struct deserialise_ctx dctx;
 	dctx.deserialise_read_ptr = c;
@@ -633,6 +682,7 @@ jobject deserialiseOrIdentify(JNIEnv *env, frontend *new_fe, jstring s, jboolean
 	if (! error && ! identifyOnly) {
 		new_fe->thegame = whichBackend;
 		new_fe->me = midend_new(new_fe, whichBackend, &android_drawing, new_fe);
+		if (initialPrefs) deserialisePrefs(env, new_fe, initialPrefs);
 		dctx.deserialise_read_ptr = c;
 		dctx.deserialise_read_len = strlen(dctx.deserialise_read_ptr);
 		error = midend_deserialise(new_fe->me, android_deserialise_read, &dctx);
@@ -648,12 +698,12 @@ jobject deserialiseOrIdentify(JNIEnv *env, frontend *new_fe, jstring s, jboolean
 	return backendEnum;
 }
 
-JNIEXPORT jobject JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_identifyBackend(JNIEnv *env, __attribute__((unused)) jclass clazz, jstring savedGame)
+JNIEXPORT jobject JNICALL Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_identifyBackend(JNIEnv *env, __attribute__((unused)) jclass clazz, jstring savedGame)
 {
-	return deserialiseOrIdentify(env, NULL, savedGame, true);
+	return deserialiseOrIdentify(env, NULL, savedGame, true, NULL);
 }
 
-JNIEXPORT jstring JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_getCurrentParams(JNIEnv *env, jobject gameEngine)
+__attribute__((unused)) JNIEXPORT jstring JNICALL Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_getCurrentParams(JNIEnv *env, jobject gameEngine)
 {
 	ENV_TO_FE_OR_THROW_ISE("Internal error in getCurrentParams", NULL)
 	char *params = midend_get_current_params(fe->me, true);
@@ -662,7 +712,7 @@ JNIEXPORT jstring JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_getCur
 	return ret;
 }
 
-JNIEXPORT jstring JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_htmlHelpTopic(JNIEnv *env, jobject gameEngine)
+JNIEXPORT jstring JNICALL Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_htmlHelpTopic(JNIEnv *env, jobject gameEngine)
 {
 	ENV_TO_FE_OR_THROW_ISE("Internal error in htmlHelpTopic", NULL)
 	return (*env)->NewStringUTF(env, fe->thegame->htmlhelp_topic);
@@ -709,7 +759,7 @@ const game* gameFromEnum(JNIEnv *env, jobject backendEnum)
     return ret;
 }
 
-JNIEXPORT jobject JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_requestKeys(JNIEnv *env, jobject gameEngine, jobject backendEnum, jstring jParams)
+JNIEXPORT jobject JNICALL Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_requestKeys(JNIEnv *env, jobject gameEngine, jobject backendEnum, jstring jParams)
 {
 	ENV_TO_FE_OR_RETURN(NULL)
 	const game *my_game = gameFromEnum(env, backendEnum);
@@ -752,7 +802,7 @@ JNIEXPORT jobject JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_reques
 	return result;
 }
 
-JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_setCursorVisibility(JNIEnv *env, jobject gameEngine, jboolean visible)
+JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_setCursorVisibility(JNIEnv *env, jobject gameEngine, jboolean visible)
 {
 	ENV_TO_FE_OR_RETURN()
 	midend_android_cursor_visibility(fe->me, visible);
@@ -775,7 +825,7 @@ char * get_text(const char *s)
 }
 #endif
 
-void startPlayingIntGameID(JNIEnv *env, frontend* new_fe, jstring jsGameID, jobject backendEnum)
+void startPlayingIntGameID(JNIEnv *env, frontend* new_fe, jstring jsGameID, jobject backendEnum, jstring initialPrefs)
 {
 	setenv("PUZZLES_SHOW_CURSOR", "y", 1);
 	new_fe->thegame = gameFromEnum(env, backendEnum);
@@ -784,6 +834,7 @@ void startPlayingIntGameID(JNIEnv *env, frontend* new_fe, jstring jsGameID, jobj
 		return;
 	}
 	new_fe->me = midend_new(new_fe, new_fe->thegame, &android_drawing, new_fe);
+	if (initialPrefs) deserialisePrefs(env, new_fe, initialPrefs);
 	const char * gameIDjs = (*env)->GetStringUTFChars(env, jsGameID, NULL);
 	char * gameID = dupstr(gameIDjs);
 	(*env)->ReleaseStringUTFChars(env, jsGameID, gameIDjs);
@@ -796,7 +847,7 @@ void startPlayingIntGameID(JNIEnv *env, frontend* new_fe, jstring jsGameID, jobj
 	midend_new_game(new_fe->me);
 }
 
-JNIEXPORT jfloatArray JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_getColours(JNIEnv *env, jobject gameEngine)
+__attribute__((unused)) JNIEXPORT jfloatArray JNICALL Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_getColours(JNIEnv *env, jobject gameEngine)
 {
 	ENV_TO_FE_OR_RETURN(NULL)
 	int n;
@@ -810,7 +861,7 @@ JNIEXPORT jfloatArray JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_ge
 
 jobject getPresetInternal(JNIEnv *env, frontend *fe, struct preset_menu_entry entry);
 
-jobjectArray getPresetsInternal(JNIEnv *env, frontend *fe, struct preset_menu *menu) {
+jobjectArray getPresetsInternal(JNIEnv *env, frontend *fe, struct preset_menu *menu) { // NOLINT(misc-no-recursion)
     jobjectArray ret = (*env)->NewObjectArray(env, menu->n_entries, MenuEntry, NULL);
     for (int i = 0; i < menu->n_entries; i++) {
         jobject menuItem = getPresetInternal(env, fe, menu->entries[i]);
@@ -819,11 +870,11 @@ jobjectArray getPresetsInternal(JNIEnv *env, frontend *fe, struct preset_menu *m
     return ret;
 }
 
-jobject getPresetInternal(JNIEnv *env, frontend *fe, const struct preset_menu_entry entry) {
+jobject getPresetInternal(JNIEnv *env, frontend *fe, const struct preset_menu_entry entry) { // NOLINT(misc-no-recursion)
     jstring title = (*env)->NewStringUTF(env, entry.title);
     if (entry.submenu) {
         jobject submenu = getPresetsInternal(env, fe, entry.submenu);
-        jmethodID newEntryWithSubmenu = (*env)->GetMethodID(env, MenuEntry,  "<init>", "(ILjava/lang/String;[Lname/boyle/chris/sgtpuzzles/MenuEntry;)V");
+        jmethodID newEntryWithSubmenu = (*env)->GetMethodID(env, MenuEntry,  "<init>", "(ILjava/lang/String;[Lname/boyle/chris/sgtpuzzles/launch/MenuEntry;)V");
         return (*env)->NewObject(env, MenuEntry, newEntryWithSubmenu, entry.id, title, submenu);
     } else {
         jstring params = (*env)->NewStringUTF(env, midend_android_preset_menu_get_encoded_params(fe->me, entry.id));
@@ -832,14 +883,14 @@ jobject getPresetInternal(JNIEnv *env, frontend *fe, const struct preset_menu_en
     }
 }
 
-JNIEXPORT jobjectArray JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_getPresets(JNIEnv *env, jobject gameEngine)
+__attribute__((unused)) JNIEXPORT jobjectArray JNICALL Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_getPresets(JNIEnv *env, jobject gameEngine)
 {
 	ENV_TO_FE_OR_THROW_ISE("Internal error in getPresets", NULL)
 	struct preset_menu* menu = midend_get_presets(fe->me, NULL);
 	return getPresetsInternal(env, fe, menu);
 }
 
-JNIEXPORT jint JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_getUIVisibility(JNIEnv *env, jobject gameEngine) {
+__attribute__((unused)) JNIEXPORT jint JNICALL Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_getUiVisibility(JNIEnv *env, jobject gameEngine) {
 	ENV_TO_FE_OR_THROW_ISE("Internal error in getUIVisibility", 0)
 	return (midend_can_undo(fe->me))
 			+ (midend_can_redo(fe->me) << 1)
@@ -848,14 +899,14 @@ JNIEXPORT jint JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_getUIVisi
 			+ (midend_wants_statusbar(fe->me) << 4);
 }
 
-JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_onDestroy(JNIEnv *env, jobject gameEngine) {
+JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_onDestroy(JNIEnv *env, jobject gameEngine) {
 	ENV_TO_FE_OR_RETURN()
 	midend_free(fe->me);  // might use viewCallbacks (e.g. blitters)
 	sfree(fe);
 	(*env)->SetLongField(env, gameEngine, frontendField, 0LL);
 }
 
-jobject startPlayingInt(JNIEnv *env, jobject backend, jobject activityCallbacks, jobject viewCallbacks, jstring saveOrGameID, int isGameID)
+jobject startPlayingInt(JNIEnv *env, jobject backend, jobject activityCallbacks, jobject viewCallbacks, jstring saveOrGameID, int isGameID, jstring initialPrefs)
 {
 	frontend *new_fe = snew(frontend);
 	memset(new_fe, 0, sizeof(frontend));
@@ -864,9 +915,9 @@ jobject startPlayingInt(JNIEnv *env, jobject backend, jobject activityCallbacks,
 	new_fe->activityCallbacks = (*env)->NewGlobalRef(env, activityCallbacks);
 	new_fe->viewCallbacks = (*env)->NewGlobalRef(env, viewCallbacks);
 	if (isGameID) {
-		startPlayingIntGameID(env, new_fe, saveOrGameID, backend);
+		startPlayingIntGameID(env, new_fe, saveOrGameID, backend, initialPrefs);
 	} else {
-		backend = deserialiseOrIdentify(env, new_fe, saveOrGameID, false);
+		backend = deserialiseOrIdentify(env, new_fe, saveOrGameID, false, initialPrefs);
 		if ((*env)->ExceptionCheck(env)) return NULL;
 	}
 
@@ -878,18 +929,40 @@ jobject startPlayingInt(JNIEnv *env, jobject backend, jobject activityCallbacks,
 }
 
 JNIEXPORT jobject JNICALL
-Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_fromSavedGame(JNIEnv *env, __attribute__((unused)) jclass clazz, jstring savedGame, jobject activityCallbacks, jobject viewCallbacks) {
-	return startPlayingInt(env, NULL, activityCallbacks, viewCallbacks, savedGame, false);
+Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_forPreferencesOnly(JNIEnv *env,
+								   __attribute__((unused)) jclass clazz,
+								   jobject backend, jstring initialPrefs) {
+    frontend *new_fe = snew(frontend);
+    memset(new_fe, 0, sizeof(frontend));
+    new_fe->env = env;
+    new_fe->thegame = gameFromEnum(env, backend);
+    if (!new_fe->thegame) {
+	    throwIllegalStateException(env, "Internal error identifying game in buildPreferences");
+	    return NULL;
+    }
+    new_fe->me = midend_new(new_fe, new_fe->thegame, &null_drawing, new_fe);
+    deserialisePrefs(env, new_fe, initialPrefs);
+    /* FIXME We don't really need the entire game, we just want to remember state (in me->ui)
+        between midend_set_config and a subsequent midend_save_prefs, to prevent the latter just
+        giving us the defaults. */
+    midend_new_game(new_fe->me);
+
+    return (*env)->NewObject(env, GameEngineImpl, newGameEngineImpl, (jlong) new_fe, backend);
 }
 
 JNIEXPORT jobject JNICALL
-Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_fromGameID(JNIEnv *env, __attribute__((unused)) jclass clazz, jstring gameID, jobject backend, jobject activityCallbacks, jobject viewCallbacks)
+Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_fromSavedGame(JNIEnv *env, __attribute__((unused)) jclass clazz, jstring savedGame, jobject activityCallbacks, jobject viewCallbacks, jstring initialPrefs) {
+	return startPlayingInt(env, NULL, activityCallbacks, viewCallbacks, savedGame, false, initialPrefs);
+}
+
+JNIEXPORT jobject JNICALL
+Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_fromGameID(JNIEnv *env, __attribute__((unused)) jclass clazz, jstring gameID, jobject backend, jobject activityCallbacks, jobject viewCallbacks, jstring initialPrefs)
 {
-	return startPlayingInt(env, backend, activityCallbacks, viewCallbacks, gameID, true);
+	return startPlayingInt(env, backend, activityCallbacks, viewCallbacks, gameID, true, initialPrefs);
 }
 
 JNIEXPORT jstring JNICALL
-Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_getDefaultParams(JNIEnv *env,
+Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_getDefaultParams(JNIEnv *env,
                                                                  __attribute__((unused)) jclass clazz,
                                                                  jobject backendEnum) {
     const game * g = gameFromEnum(env, backendEnum);
@@ -902,19 +975,20 @@ Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_getDefaultParams(JNIEnv *env,
     return (*env)->NewStringUTF(env, encoded);
 }
 
-JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_purgeStates(JNIEnv *env, jobject gameEngine)
+JNIEXPORT void JNICALL Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_purgeStates(JNIEnv *env, jobject gameEngine)
 {
     ENV_TO_FE_OR_RETURN()
     midend_purge_states(fe->me);
 }
 
-JNIEXPORT jboolean JNICALL Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_isCompletedNow(JNIEnv *env, jobject gameEngine) {
+__attribute__((unused)) JNIEXPORT jboolean JNICALL
+Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_isCompletedNow(JNIEnv *env, jobject gameEngine) {
     ENV_TO_FE_OR_RETURN(false)
     return midend_status(fe->me);
 }
 
-JNIEXPORT jobject JNICALL
-Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_getCursorLocation(JNIEnv *env, jobject gameEngine) {
+__attribute__((unused)) JNIEXPORT jobject JNICALL
+Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_getCursorLocation(JNIEnv *env, jobject gameEngine) {
     ENV_TO_FE_OR_THROW_ISE("Internal error in getCursorLocation", NULL)
     int x, y, w, h;
     if (!midend_get_cursor_location(fe->me, &x, &y, &w, &h)) {
@@ -924,18 +998,26 @@ Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_getCursorLocation(JNIEnv *env, j
             (float)(fe->ox + x), (float)(fe->oy + y), (float)(fe->ox + x + w), (float)(fe->oy + y + h));
 }
 
-JNIEXPORT jobject JNICALL
-Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_getGameSizeInGameCoords(JNIEnv *env, jobject gameEngine) {
+__attribute__((unused)) JNIEXPORT jobject JNICALL
+Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_getGameSizeInGameCoords(JNIEnv *env, jobject gameEngine) {
     ENV_TO_FE_OR_THROW_ISE("Internal error in getGameSizeInGameCoords", NULL)
     return (*env)->NewObject(env, Point, newPoint, fe->winwidth, fe->winheight);
 }
 
 
 JNIEXPORT void JNICALL
-Java_name_boyle_chris_sgtpuzzles_GameEngineImpl_freezePartialRedo(JNIEnv *env, jobject gameEngine) {
+Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_freezePartialRedo(JNIEnv *env, jobject gameEngine) {
 	ENV_TO_FE_OR_THROW_ISE("Internal error in freezePartialRedo",)
-	midend_process_key(fe->me, 0, 0, 'r', NULL);
+	midend_process_key(fe->me, 0, 0, 'r');
 	midend_freeze_timer(fe->me, 0.3f);
+}
+
+JNIEXPORT void JNICALL
+Java_name_boyle_chris_sgtpuzzles_backend_GameEngineImpl_setViewCallbacks(JNIEnv *env, jobject gameEngine,
+									 jobject viewCallbacks) {
+    ENV_TO_FE_OR_THROW_ISE("Internal error in setViewCallbacks",)
+    if (fe->viewCallbacks) (*env)->DeleteGlobalRef(env, fe->viewCallbacks);
+    fe->viewCallbacks = (*env)->NewGlobalRef(env, viewCallbacks);
 }
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *jvm, __attribute__((unused)) void *reserved)
@@ -944,14 +1026,14 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *jvm, __attribute__((unused)) void *res
 	JNIEnv *env;
 	if ((*jvm)->GetEnv(jvm, (void **)&env, JNI_VERSION_1_6)) return JNI_ERR;
 
-	GameEngineImpl = (jclass)(*env)->NewGlobalRef(env, (*env)->FindClass(env, "name/boyle/chris/sgtpuzzles/GameEngineImpl"));
-	ActivityCallbacks = (jclass)(*env)->NewGlobalRef(env, (*env)->FindClass(env, "name/boyle/chris/sgtpuzzles/GameEngine$ActivityCallbacks"));
-	ViewCallbacks = (jclass)(*env)->NewGlobalRef(env, (*env)->FindClass(env, "name/boyle/chris/sgtpuzzles/GameEngine$ViewCallbacks"));
-	ArrowMode = (jclass)(*env)->NewGlobalRef(env, (*env)->FindClass(env, "name/boyle/chris/sgtpuzzles/SmallKeyboard$ArrowMode"));
-	BackendName = (jclass)(*env)->NewGlobalRef(env, (*env)->FindClass(env, "name/boyle/chris/sgtpuzzles/BackendName"));
-	MenuEntry = (jclass)(*env)->NewGlobalRef(env, (*env)->FindClass(env, "name/boyle/chris/sgtpuzzles/MenuEntry"));
-	CustomDialogBuilder = (jclass)(*env)->NewGlobalRef(env, (*env)->FindClass(env, "name/boyle/chris/sgtpuzzles/CustomDialogBuilder"));
-	KeysResult = (jclass)(*env)->NewGlobalRef(env, (*env)->FindClass(env, "name/boyle/chris/sgtpuzzles/GameEngine$KeysResult"));
+	GameEngineImpl = (jclass)(*env)->NewGlobalRef(env, (*env)->FindClass(env, "name/boyle/chris/sgtpuzzles/backend/GameEngineImpl"));
+	ActivityCallbacks = (jclass)(*env)->NewGlobalRef(env, (*env)->FindClass(env, "name/boyle/chris/sgtpuzzles/backend/GameEngine$ActivityCallbacks"));
+	ViewCallbacks = (jclass)(*env)->NewGlobalRef(env, (*env)->FindClass(env, "name/boyle/chris/sgtpuzzles/backend/GameEngine$ViewCallbacks"));
+	ArrowMode = (jclass)(*env)->NewGlobalRef(env, (*env)->FindClass(env, "name/boyle/chris/sgtpuzzles/buttons/ArrowMode"));
+	BackendName = (jclass)(*env)->NewGlobalRef(env, (*env)->FindClass(env, "name/boyle/chris/sgtpuzzles/backend/BackendName"));
+	MenuEntry = (jclass)(*env)->NewGlobalRef(env, (*env)->FindClass(env, "name/boyle/chris/sgtpuzzles/launch/MenuEntry"));
+	ConfigBuilder = (jclass)(*env)->NewGlobalRef(env, (*env)->FindClass(env, "name/boyle/chris/sgtpuzzles/config/ConfigBuilder"));
+	KeysResult = (jclass)(*env)->NewGlobalRef(env, (*env)->FindClass(env, "name/boyle/chris/sgtpuzzles/backend/GameEngine$KeysResult"));
 	IllegalArgumentException = (jclass)(*env)->NewGlobalRef(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"));
 	IllegalStateException = (jclass)(*env)->NewGlobalRef(env, (*env)->FindClass(env, "java/lang/IllegalStateException"));
 	RectF = (jclass)(*env)->NewGlobalRef(env, (*env)->FindClass(env, "android/graphics/RectF"));
@@ -959,23 +1041,21 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *jvm, __attribute__((unused)) void *res
 
 	frontendField   = (*env)->GetFieldID(env, GameEngineImpl, "_nativeFrontend", "J");
 	ARROW_MODE_NONE = (*env)->NewGlobalRef(env, (*env)->GetStaticObjectField(env, ArrowMode,
-			(*env)->GetStaticFieldID(env, ArrowMode, "NO_ARROWS", "Lname/boyle/chris/sgtpuzzles/SmallKeyboard$ArrowMode;")));
+			(*env)->GetStaticFieldID(env, ArrowMode, "NO_ARROWS", "Lname/boyle/chris/sgtpuzzles/buttons/ArrowMode;")));
 	ARROW_MODE_ARROWS_ONLY = (*env)->NewGlobalRef(env, (*env)->GetStaticObjectField(env, ArrowMode,
-			(*env)->GetStaticFieldID(env, ArrowMode, "ARROWS_ONLY", "Lname/boyle/chris/sgtpuzzles/SmallKeyboard$ArrowMode;")));
+			(*env)->GetStaticFieldID(env, ArrowMode, "ARROWS_ONLY", "Lname/boyle/chris/sgtpuzzles/buttons/ArrowMode;")));
 	ARROW_MODE_ARROWS_LEFT_CLICK = (*env)->NewGlobalRef(env, (*env)->GetStaticObjectField(env, ArrowMode,
-			(*env)->GetStaticFieldID(env, ArrowMode, "ARROWS_LEFT_CLICK", "Lname/boyle/chris/sgtpuzzles/SmallKeyboard$ArrowMode;")));
+			(*env)->GetStaticFieldID(env, ArrowMode, "ARROWS_LEFT_CLICK", "Lname/boyle/chris/sgtpuzzles/buttons/ArrowMode;")));
 	ARROW_MODE_ARROWS_LEFT_RIGHT_CLICK = (*env)->NewGlobalRef(env, (*env)->GetStaticObjectField(env, ArrowMode,
-			(*env)->GetStaticFieldID(env, ArrowMode, "ARROWS_LEFT_RIGHT_CLICK", "Lname/boyle/chris/sgtpuzzles/SmallKeyboard$ArrowMode;")));
+			(*env)->GetStaticFieldID(env, ArrowMode, "ARROWS_LEFT_RIGHT_CLICK", "Lname/boyle/chris/sgtpuzzles/buttons/ArrowMode;")));
 	ARROW_MODE_DIAGONALS = (*env)->NewGlobalRef(env, (*env)->GetStaticObjectField(env, ArrowMode,
-			(*env)->GetStaticFieldID(env, ArrowMode, "ARROWS_DIAGONALS", "Lname/boyle/chris/sgtpuzzles/SmallKeyboard$ArrowMode;")));
+			(*env)->GetStaticFieldID(env, ArrowMode, "ARROWS_DIAGONALS", "Lname/boyle/chris/sgtpuzzles/buttons/ArrowMode;")));
 
-	newGameEngineImpl  = (*env)->GetMethodID(env, GameEngineImpl, "<init>", "(JLname/boyle/chris/sgtpuzzles/BackendName;)V");
-	byDisplayName  = (*env)->GetStaticMethodID(env, BackendName, "byDisplayName", "(Ljava/lang/String;)Lname/boyle/chris/sgtpuzzles/BackendName;");
+	newGameEngineImpl  = (*env)->GetMethodID(env, GameEngineImpl, "<init>", "(JLname/boyle/chris/sgtpuzzles/backend/BackendName;)V");
+	byDisplayName  = (*env)->GetStaticMethodID(env, BackendName, "byDisplayName", "(Ljava/lang/String;)Lname/boyle/chris/sgtpuzzles/backend/BackendName;");
 	backendToString = (*env)->GetMethodID(env, BackendName, "toString", "()Ljava/lang/String;");
-	newDialogBuilder = (*env)->GetMethodID(env, CustomDialogBuilder, "<init>",
-		"(Landroid/content/Context;Lname/boyle/chris/sgtpuzzles/CustomDialogBuilder$EngineCallbacks;Lname/boyle/chris/sgtpuzzles/CustomDialogBuilder$ActivityCallbacks;ILjava/lang/String;Lname/boyle/chris/sgtpuzzles/BackendName;)V");
 	newKeysResult  = (*env)->GetMethodID(env, KeysResult, "<init>",
-			"(Ljava/lang/String;Ljava/lang/String;Lname/boyle/chris/sgtpuzzles/SmallKeyboard$ArrowMode;)V");
+			"(Ljava/lang/String;Ljava/lang/String;Lname/boyle/chris/sgtpuzzles/buttons/ArrowMode;)V");
 	changedState   = (*env)->GetMethodID(env, ActivityCallbacks, "changedState", "(ZZ)V");
 	purgingStates  = (*env)->GetMethodID(env, ActivityCallbacks, "purgingStates", "()V");
 	allowFlash     = (*env)->GetMethodID(env, ActivityCallbacks, "allowFlash", "()Z");
@@ -997,10 +1077,11 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *jvm, __attribute__((unused)) void *res
 	getBackgroundColour = (*env)->GetMethodID(env, ViewCallbacks, "getDefaultBackgroundColour", "()I");
 	postInvalidate = (*env)->GetMethodID(env, ViewCallbacks, "postInvalidateOnAnimation", "()V");
 	unClip         = (*env)->GetMethodID(env, ViewCallbacks, "unClip", "(II)V");
-	dialogAddString = (*env)->GetMethodID(env, CustomDialogBuilder, "dialogAddString", "(ILjava/lang/String;Ljava/lang/String;)V");
-	dialogAddBoolean = (*env)->GetMethodID(env, CustomDialogBuilder, "dialogAddBoolean", "(ILjava/lang/String;Z)V");
-	dialogAddChoices = (*env)->GetMethodID(env, CustomDialogBuilder, "dialogAddChoices", "(ILjava/lang/String;Ljava/lang/String;I)V");
-	dialogShow     = (*env)->GetMethodID(env, CustomDialogBuilder, "dialogShow", "()V");
+	setTitle       = (*env)->GetMethodID(env, ConfigBuilder, "setTitle", "(Ljava/lang/String;)V");
+	addString      = (*env)->GetMethodID(env, ConfigBuilder, "addString", "(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)V");
+	addBoolean     = (*env)->GetMethodID(env, ConfigBuilder, "addBoolean", "(ILjava/lang/String;Ljava/lang/String;Z)V");
+	addChoices     = (*env)->GetMethodID(env, ConfigBuilder, "addChoices", "(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;I)V");
+	dialogShow     = (*env)->GetMethodID(env, ConfigBuilder, "dialogShow", "()V");
 	baosWrite      = (*env)->GetMethodID(env, (*env)->FindClass(env, "java/io/ByteArrayOutputStream"),  "write", "([B)V");
 	newRectFWithLTRB = (*env)->GetMethodID(env, RectF, "<init>", "(FFFF)V");
 	newPoint        = (*env)->GetMethodID(env, Point, "<init>", "(II)V");

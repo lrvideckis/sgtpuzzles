@@ -35,6 +35,9 @@ set(emcc_export_list
   _timer_callback
   # Callback from button presses in the UI outside the canvas
   _command
+  # Text-formatting for copying to clipboard
+  _get_text_format
+  _free_text_format
   # Game-saving and game-loading functions
   _get_save_file
   _free_save_file
@@ -47,6 +50,11 @@ set(emcc_export_list
   _restore_puzzle_size
   # Callback when device pixel ratio changes
   _rescale_puzzle
+  # Callback for loading user preferences
+  _prefs_load_callback
+  # Functions for allocating and freeing C memory
+  _malloc
+  _free
   # Main program, run at initialisation time
   _main)
 

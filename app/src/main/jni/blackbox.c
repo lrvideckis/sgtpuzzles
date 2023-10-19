@@ -912,7 +912,7 @@ done:
 #define TILE_SIZE (ds->tilesize)
 
 #define TODRAW(x) ((TILE_SIZE * (x)) + (TILE_SIZE / 2))
-#define FROMDRAW(x) (((x) - (TILE_SIZE / 2)) / TILE_SIZE)
+#define FROMDRAW(x) (((x) + (TILE_SIZE / 2)) / TILE_SIZE - 1)
 
 #define CAN_REVEAL(state) ((state)->nguesses >= (state)->minballs && \
 			   (state)->nguesses <= (state)->maxballs && \
@@ -937,7 +937,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
     if (IS_CURSOR_MOVE(button)) {
         int cx = ui->cur_x, cy = ui->cur_y;
 
-        move_cursor(button, &cx, &cy, state->w+2, state->h+2, false);
+        move_cursor(button, &cx, &cy, state->w+2, state->h+2, false, NULL);
         if ((cx == 0 && cy == 0 && !CAN_REVEAL(state)) ||
             (cx == 0 && cy == state->h+1) ||
             (cx == state->w+1 && cy == 0) ||
@@ -946,7 +946,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
         ui->cur_x = cx;
         ui->cur_y = cy;
         ui->cur_visible = true;
-        return UI_UPDATE;
+        return MOVE_UI_UPDATE;
     }
 
     if (button == LEFT_BUTTON || button == RIGHT_BUTTON) {
@@ -956,7 +956,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
         wouldflash = 1;
     } else if (button == LEFT_RELEASE) {
         ui->flash_laser = 0;
-        return UI_UPDATE;
+        return MOVE_UI_UPDATE;
     } else if (IS_CURSOR_SELECT(button)) {
         if (ui->cur_visible) {
             gx = ui->cur_x;
@@ -965,7 +965,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
             wouldflash = 2;
         } else {
             ui->cur_visible = true;
-            return UI_UPDATE;
+            return MOVE_UI_UPDATE;
         }
         /* Fix up 'button' for the below logic. */
         if (button == CURSOR_SELECT2) button = RIGHT_BUTTON;
@@ -1014,9 +1014,9 @@ static char *interpret_move(const game_state *state, game_ui *ui,
 	    return nullret;
         ui->flash_laserno = rangeno;
         ui->flash_laser = wouldflash;
-        nullret = UI_UPDATE;
+        nullret = MOVE_UI_UPDATE;
         if (state->exits[rangeno] != LASER_EMPTY)
-            return UI_UPDATE;
+            return MOVE_UI_UPDATE;
         sprintf(buf, "F%d", rangeno);
         break;
 
@@ -1156,7 +1156,7 @@ static void game_get_cursor_location(const game_ui *ui,
  */
 
 static void game_compute_size(const game_params *params, int tilesize,
-                              int *x, int *y)
+                              const game_ui *ui, int *x, int *y)
 {
     /* Border is ts/2, to make things easier.
      * Thus we have (width) + 2 (firing range*2) + 1 (border*2) tiles
@@ -1567,6 +1567,7 @@ const struct game thegame = {
     free_game,
     true, solve_game,
     false, NULL, NULL, /* can_format_as_text_now, text_format */
+    NULL, NULL, /* get_prefs, set_prefs */
     new_ui,
     free_ui,
     encode_ui,

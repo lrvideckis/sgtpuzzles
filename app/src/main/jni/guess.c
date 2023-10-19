@@ -39,6 +39,11 @@ typedef struct pegrow {
     int *pegs;          /* 0 is 'empty' */
     int *feedback;      /* may well be unused */
 } *pegrow;
+/* Pegs can have these flags OR'ed into them. */
+#define PEG_CURSOR   0x1000
+#define PEG_HOLD     0x2000
+#define PEG_LABELLED 0x4000
+#define PEG_FLAGS    (PEG_CURSOR | PEG_HOLD | PEG_LABELLED)
 
 struct game_state {
     game_params params;
@@ -428,20 +433,45 @@ static game_ui *new_ui(const game_state *state)
 {
     game_ui *ui = snew(game_ui);
     memset(ui, 0, sizeof(game_ui));
-    ui->params = state->params;        /* structure copy */
-    ui->curr_pegs = new_pegrow(state->params.npegs);
-    ui->holds = snewn(state->params.npegs, bool);
+    if (state != NULL) {
+        ui->params = state->params;        /* structure copy */
+        ui->curr_pegs = new_pegrow(state->params.npegs);
+        ui->holds = snewn(state->params.npegs, bool);
+        memset(ui->holds, 0, sizeof(bool)*state->params.npegs);
+    }
     ui->display_cur = getenv_bool("PUZZLES_SHOW_CURSOR", false);
-    memset(ui->holds, 0, sizeof(bool)*state->params.npegs);
     ui->drag_opeg = -1;
     return ui;
+}
+
+static config_item *get_prefs(game_ui *ui)
+{
+    config_item *ret;
+
+    ret = snewn(2, config_item);
+
+    ret[0].name = "Label colours with numbers";
+    ret[0].kw = "show-labels";
+    ret[0].type = C_BOOLEAN;
+    ret[0].u.boolean.bval = ui->show_labels;
+
+    ret[1].name = NULL;
+    ret[1].type = C_END;
+
+    return ret;
+}
+
+static void set_prefs(game_ui *ui, const config_item *cfg)
+{
+    ui->show_labels = cfg[0].u.boolean.bval;
 }
 
 static void free_ui(game_ui *ui)
 {
     if (ui->hint)
         free_pegrow(ui->hint);
-    free_pegrow(ui->curr_pegs);
+    if (ui->curr_pegs)
+        free_pegrow(ui->curr_pegs);
     sfree(ui->holds);
     sfree(ui);
 }
@@ -813,7 +843,7 @@ static char *interpret_move(const game_state *from, game_ui *ui,
      */
     if (button == 'l' || button == 'L') {
         ui->show_labels = !ui->show_labels;
-        return UI_UPDATE;
+        return MOVE_UI_UPDATE;
     }
 
     if (from->solved) return NULL;
@@ -870,13 +900,13 @@ static char *interpret_move(const game_state *from, game_ui *ui,
             ui->drag_y = y;
             debug(("Start dragging, col = %d, (%d,%d)",
                    ui->drag_col, ui->drag_x, ui->drag_y));
-            ret = UI_UPDATE;
+            ret = MOVE_UI_UPDATE;
         }
     } else if (button == LEFT_DRAG && ui->drag_col) {
         ui->drag_x = x;
         ui->drag_y = y;
         debug(("Keep dragging, (%d,%d)", ui->drag_x, ui->drag_y));
-        ret = UI_UPDATE;
+        ret = MOVE_UI_UPDATE;
     } else if (button == LEFT_RELEASE && ui->drag_col) {
         if (over_guess > -1) {
             debug(("Dropping colour %d onto guess peg %d",
@@ -893,13 +923,13 @@ static char *interpret_move(const game_state *from, game_ui *ui,
         ui->drag_opeg = -1;
         ui->display_cur = false;
         debug(("Stop dragging."));
-        ret = UI_UPDATE;
+        ret = MOVE_UI_UPDATE;
     } else if (button == RIGHT_BUTTON) {
         if (over_guess > -1) {
             /* we use ths feedback in the game_ui to signify
              * 'carry this peg to the next guess as well'. */
             ui->holds[over_guess] ^= 1;
-            ret = UI_UPDATE;
+            ret = MOVE_UI_UPDATE;
         }
     } else if (button == LEFT_RELEASE && over_hint && ui->markable) {
         /* NB this won't trigger if on the end of a drag; that's on
@@ -908,33 +938,23 @@ static char *interpret_move(const game_state *from, game_ui *ui,
     }
 
     /* keyboard input */
-    if (button == CURSOR_UP || button == CURSOR_DOWN) {
-        ui->display_cur = true;
-        if (button == CURSOR_DOWN && (ui->colour_cur+1) < from->params.ncolours)
-            ui->colour_cur++;
-        if (button == CURSOR_UP && ui->colour_cur > 0)
-            ui->colour_cur--;
-        ret = UI_UPDATE;
-    } else if (button == 'h' || button == 'H' || button == '?') {
-        compute_hint(from, ui);
-        ret = UI_UPDATE;
-    } else if (button == CURSOR_LEFT || button == CURSOR_RIGHT) {
+    if (IS_CURSOR_MOVE(button)) {
         int maxcur = from->params.npegs;
         if (ui->markable) maxcur++;
 
-        ui->display_cur = true;
-        if (button == CURSOR_RIGHT && (ui->peg_cur+1) < maxcur)
-            ui->peg_cur++;
-        if (button == CURSOR_LEFT && ui->peg_cur > 0)
-            ui->peg_cur--;
-        ret = UI_UPDATE;
+        ret = move_cursor(button, &ui->peg_cur, &ui->colour_cur,
+                          maxcur, from->params.ncolours,
+                          false, &ui->display_cur);
+    } else if (button == 'h' || button == 'H' || button == '?') {
+        compute_hint(from, ui);
+        ret = MOVE_UI_UPDATE;
     } else if (button == CURSOR_SELECT) {
         ui->display_cur = true;
         if (ui->peg_cur == from->params.npegs) {
             ret = encode_move(from, ui);
         } else {
             set_peg(&from->params, ui, ui->peg_cur, ui->colour_cur+1);
-            ret = UI_UPDATE;
+            ret = MOVE_UI_UPDATE;
         }
     } else if (((button >= '1' && button <= '0' + from->params.ncolours) ||
                 (button == '0' && from->params.ncolours == 10)) &&
@@ -945,17 +965,20 @@ static char *interpret_move(const game_state *from, game_ui *ui,
                 button == '0' ? 10 : button - '0');
         if (ui->peg_cur + 1 < from->params.npegs + ui->markable)
             ui->peg_cur++;
-        ret = UI_UPDATE;
+        ret = MOVE_UI_UPDATE;
     } else if (button == 'D' || button == 'd' || button == '\b') {
-        ui->display_cur = true;
-        set_peg(&from->params, ui, ui->peg_cur, 0);
-        ret = UI_UPDATE;
+        if (!ui->display_cur || ui->curr_pegs->pegs[ui->peg_cur] != 0) {
+            ui->display_cur = true;
+            set_peg(&from->params, ui, ui->peg_cur, 0);
+            ret = MOVE_UI_UPDATE;
+        } else
+            ret = MOVE_NO_EFFECT;
     } else if (button == CURSOR_SELECT2) {
         if (ui->peg_cur == from->params.npegs)
             return NULL;
         ui->display_cur = true;
         ui->holds[ui->peg_cur] ^= 1;
-        ret = UI_UPDATE;
+        ret = MOVE_UI_UPDATE;
     }
     return ret;
 }
@@ -1023,7 +1046,7 @@ static game_state *execute_move(const game_state *from, const char *move)
 #define BORDER    0.5
 
 static void game_compute_size(const game_params *params, int tilesize,
-                              int *x, int *y)
+                              const game_ui *ui, int *x, int *y)
 {
     double hmul, vmul_c, vmul_g, vmul;
     int hintw = (params->npegs+1)/2;
@@ -1067,7 +1090,8 @@ static void game_set_size(drawing *dr, game_drawstate *ds,
     guessh = ((ds->pegsz + ds->gapsz) * params->nguesses);      /* guesses */
     guessh += ds->gapsz + ds->pegsz;                            /* solution */
 
-    game_compute_size(params, tilesize, &ds->w, &ds->h);
+    /* We know we don't need anything from the game_ui we haven't got */
+    game_compute_size(params, tilesize, NULL, &ds->w, &ds->h);
     ds->colx = ds->border;
     ds->coly = (ds->h - colh) / 2;
 
@@ -1281,23 +1305,25 @@ static void guess_redraw(drawing *dr, game_drawstate *ds, int guess,
     for (i = 0; i < dest->npegs; i++) {
         scol = src ? src->pegs[i] : 0;
         if (i == cur_col)
-            scol |= 0x1000;
+            scol |= PEG_CURSOR;
         if (holds && holds[i])
-            scol |= 0x2000;
+            scol |= PEG_HOLD;
         if (labelled)
-            scol |= 0x4000;
+            scol |= PEG_LABELLED;
         if ((dest->pegs[i] != scol) || force) {
 	    draw_peg(dr, ds, rowx + PEGOFF * i, rowy, false, labelled,
-                     scol &~ 0x7000);
+                     scol &~ PEG_FLAGS);
+            if (scol & PEG_CURSOR)
+                draw_cursor(dr, ds, rowx + PEGOFF * i, rowy);
             /*
              * Hold marker.
              */
-            draw_rect(dr, rowx + PEGOFF * i, rowy + PEGSZ + ds->gapsz/2,
-                      PEGSZ, 2, (scol & 0x2000 ? COL_HOLD : COL_BACKGROUND));
-            draw_update(dr, rowx + PEGOFF * i, rowy + PEGSZ + ds->gapsz/2,
-                        PEGSZ, 2);
-            if (scol & 0x1000)
-                draw_cursor(dr, ds, rowx + PEGOFF * i, rowy);
+            if (scol & PEG_HOLD) {
+                draw_rect(dr, rowx + PEGOFF * i,
+                          rowy + PEGSZ + ds->gapsz/2 - 2, PEGSZ, 2, COL_HOLD);
+            }
+            draw_update(dr, rowx + PEGOFF * i,
+                        rowy + PEGSZ + ds->gapsz/2 - 2, PEGSZ, 2);
         }
         dest->pegs[i] = scol;
     }
@@ -1324,9 +1350,9 @@ static void hint_redraw(drawing *dr, game_drawstate *ds, int guess,
     for (i = 0; i < dest->npegs; i++) {
         scol = src ? src->feedback[i] : 0;
         if (i == 0 && cursor)
-            scol |= 0x1000;
+            scol |= PEG_CURSOR;
         if (i == 0 && markable)
-            scol |= 0x2000;
+            scol |= PEG_HOLD;
         if ((scol != dest->feedback[i]) || force) {
             need_redraw = true;
         }
@@ -1411,19 +1437,18 @@ static void game_redraw(drawing *dr, game_drawstate *ds,
     for (i = 0; i < state->params.ncolours; i++) {
         int val = i+1;
         if (ui->display_cur && ui->colour_cur == i)
-            val |= 0x1000;
+            val |= PEG_CURSOR;
         if (ui->show_labels)
-            val |= 0x2000;
+            val |= PEG_HOLD;
         if (ds->colours->pegs[i] != val) {
 	    draw_peg(dr, ds, COL_X(i), COL_Y(i), false, ui->show_labels, i+1);
-            if (val & 0x1000)
+            if (val & PEG_CURSOR)
                 draw_cursor(dr, ds, COL_X(i), COL_Y(i));
             ds->colours->pegs[i] = val;
         }
     }
 
-    /* draw the guesses (so far) and the hints
-     * (in reverse order to avoid trampling holds, and postponing the
+    /* draw the guesses (so far) and the hints (postponing the
      * next_go'th to not overrender the top of the circular cursor) */
     for (i = state->params.nguesses - 1; i >= 0; i--) {
         if (i < state->next_go || state->solved) {
@@ -1541,6 +1566,7 @@ const struct game thegame = {
     free_game,
     true, solve_game,
     false, NULL, NULL, /* can_format_as_text_now, text_format */
+    get_prefs, set_prefs,
     new_ui,
     free_ui,
     encode_ui,

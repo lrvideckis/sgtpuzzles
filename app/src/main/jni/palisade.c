@@ -186,7 +186,7 @@ typedef struct solver_ctx {
     const game_params *params;  /* also in shared_state */
     clue *clues;                /* also in shared_state */
     borderflag *borders;        /* also in game_state */
-    int *dsf;                   /* particular to the solver */
+    DSF *dsf;                   /* particular to the solver */
 } solver_ctx;
 
 /* Deductions:
@@ -273,7 +273,7 @@ static void connect(solver_ctx *ctx, int i, int j)
 static bool connected(solver_ctx *ctx, int i, int j, int dir)
 {
     if (j == COMPUTE_J) j = i + dx[dir] + ctx->params->w*dy[dir];
-    return dsf_canonify(ctx->dsf, i) == dsf_canonify(ctx->dsf, j);
+    return dsf_equivalent(ctx->dsf, i, j);
 }
 
 static void disconnect(solver_ctx *ctx, int i, int j, int dir)
@@ -506,7 +506,7 @@ static bool solver_equivalent_edges(solver_ctx *ctx)
 }
 
 /* build connected components in `dsf', along the lines of `borders'. */
-static void build_dsf(int w, int h, borderflag *border, int *dsf, bool black)
+static void build_dsf(int w, int h, borderflag *border, DSF *dsf, bool black)
 {
     int x, y;
 
@@ -527,7 +527,7 @@ static bool is_solved(const game_params *params, clue *clues,
 {
     int w = params->w, h = params->h, wh = w*h, k = params->k;
     int i, x, y;
-    int *dsf = snew_dsf(wh);
+    DSF *dsf = dsf_new(wh);
 
     build_dsf(w, h, border, dsf, true);
 
@@ -557,19 +557,19 @@ static bool is_solved(const game_params *params, clue *clues,
     for (y = 0; y < h; y++) {
         for (x = 0; x < w; x++) {
             if (x+1 < w && (border[y*w+x] & BORDER_R) &&
-                dsf_canonify(dsf, y*w+x) == dsf_canonify(dsf, y*w+(x+1)))
+                dsf_equivalent(dsf, y*w+x, y*w+(x+1)))
                 goto error;
             if (y+1 < h && (border[y*w+x] & BORDER_D) &&
-                dsf_canonify(dsf, y*w+x) == dsf_canonify(dsf, (y+1)*w+x))
+                dsf_equivalent(dsf, y*w+x, (y+1)*w+x))
                 goto error;
         }
     }
 
-    sfree(dsf);
+    dsf_free(dsf);
     return true;
 
 error:
-    sfree(dsf);
+    dsf_free(dsf);
     return false;
 }
 
@@ -582,7 +582,7 @@ static bool solver(const game_params *params, clue *clues, borderflag *borders)
     ctx.params = params;
     ctx.clues = clues;
     ctx.borders = borders;
-    ctx.dsf = snew_dsf(wh);
+    ctx.dsf = dsf_new(wh);
 
     solver_connected_clues_versus_region_size(&ctx); /* idempotent */
     do {
@@ -594,7 +594,7 @@ static bool solver(const game_params *params, clue *clues, borderflag *borders)
         changed |= solver_equivalent_edges(&ctx);
     } while (changed);
 
-    sfree(ctx.dsf);
+    dsf_free(ctx.dsf);
 
     return is_solved(params, clues, borders);
 }
@@ -631,9 +631,8 @@ static char *new_game_desc(const game_params *params, random_state *rs,
 
     char *soln = snewa(*aux, wh + 2);
     int *shuf = snewn(wh, int);
-    int *dsf = NULL, i, r, c;
-
-    int attempts = 0;
+    DSF *dsf = NULL;
+    int i, r, c;
 
     for (i = 0; i < wh; ++i) shuf[i] = i;
     xshuffle(shuf, wh, rs);
@@ -645,10 +644,9 @@ static char *new_game_desc(const game_params *params, random_state *rs,
     soln[wh] = '\0';
 
     do {
-        ++attempts;
         setmem(soln, '@', wh);
 
-        sfree(dsf);
+        dsf_free(dsf);
         dsf = divvy_rectangle(w, h, k, rs);
 
         for (r = 0; r < h; ++r)
@@ -658,7 +656,7 @@ static char *new_game_desc(const game_params *params, random_state *rs,
                 for (dir = 0; dir < 4; ++dir) {
                     int rr = r + dy[dir], cc = c + dx[dir], ii = rr * w + cc;
                     if (OUT_OF_BOUNDS(cc, rr, w, h) ||
-                        dsf_canonify(dsf, i) != dsf_canonify(dsf, ii)) {
+                        !dsf_equivalent(dsf, i, ii)) {
                         ++numbers[i];
                         soln[i] |= BORDER(dir);
                     }
@@ -683,7 +681,7 @@ static char *new_game_desc(const game_params *params, random_state *rs,
     sfree(scratch_borders);
     sfree(rim);
     sfree(shuf);
-    sfree(dsf);
+    dsf_free(dsf);
 
     char *output = snewn(wh + 1, char), *p = output;
 
@@ -1011,13 +1009,13 @@ static char *interpret_move(const game_state *state, game_ui *ui,
     }
 
     if (IS_CURSOR_MOVE(button)) {
-        ui->show = true;
         if (control || shift) {
             borderflag flag = 0, newflag, flipflag = 0;
             int dir, i =  ui->y * w + ui->x;
+            ui->show = true;
             x = ui->x;
             y = ui->y;
-            move_cursor(button, &x, &y, w, h, false);
+            move_cursor(button, &x, &y, w, h, false, NULL);
             if (OUT_OF_BOUNDS(x, y, w, h)) return NULL;
 
             for (dir = 0; dir < 4; ++dir)
@@ -1052,10 +1050,8 @@ static char *interpret_move(const game_state *state, game_ui *ui,
 
             return string(80, "F%d,%d,%dF%d,%d,%d",
                           ui->x, ui->y, flag, x, y, flipflag);
-        } else {
-            move_cursor(button, &ui->x, &ui->y, w, h, false);
-            return UI_UPDATE;
-        }
+        } else
+            return move_cursor(button, &ui->x, &ui->y, w, h, false, &ui->show);
     }
 
     return NULL;
@@ -1104,7 +1100,7 @@ static game_state *execute_move(const game_state *state, const char *move)
 /* --- Drawing routines --------------------------------------------- */
 
 static void game_compute_size(const game_params *params, int tilesize,
-                              int *x, int *y)
+                              const game_ui *ui, int *x, int *y)
 {
     *x = (params->w + 1) * tilesize;
     *y = (params->h + 1) * tilesize;
@@ -1233,7 +1229,7 @@ static void game_redraw(drawing *dr, game_drawstate *ds,
 {
     int w = state->shared->params.w, h = state->shared->params.h, wh = w*h;
     int r, c, flash = ((int) (flashtime * 5 / FLASH_TIME)) % 2;
-    int *black_border_dsf = snew_dsf(wh), *yellow_border_dsf = snew_dsf(wh);
+    DSF *black_border_dsf = dsf_new(wh), *yellow_border_dsf = dsf_new(wh);
     int k = state->shared->params.k;
 
     if (!ds->grid) {
@@ -1314,8 +1310,8 @@ static void game_redraw(drawing *dr, game_drawstate *ds,
             draw_tile(dr, ds, r, c, ds->grid[i], clue);
         }
 
-    sfree(black_border_dsf);
-    sfree(yellow_border_dsf);
+    dsf_free(black_border_dsf);
+    dsf_free(yellow_border_dsf);
 }
 
 static float game_anim_length(const game_state *oldstate,
@@ -1353,11 +1349,12 @@ static int game_status(const game_state *state)
 }
 
 #ifndef NO_PRINTING
-static void game_print_size(const game_params *params, float *x, float *y)
+static void game_print_size(const game_params *params, const game_ui *ui,
+                            float *x, float *y)
 {
     int pw, ph;
 
-    game_compute_size(params, 700, &pw, &ph); /* 7mm, like loopy */
+    game_compute_size(params, 700, ui, &pw, &ph); /* 7mm, like loopy */
 
     *x = pw / 100.0F;
     *y = ph / 100.0F;
@@ -1376,7 +1373,8 @@ static void print_line(drawing *dr, int x1, int y1, int x2, int y2,
     } else draw_line(dr, x1, y1, x2, y2, colour);
 }
 
-static void game_print(drawing *dr, const game_state *state, int tilesize)
+static void game_print(drawing *dr, const game_state *state, const game_ui *ui,
+                       int tilesize)
 {
     int w = state->shared->params.w, h = state->shared->params.h;
     int ink = print_mono_colour(dr, 0);
@@ -1441,6 +1439,7 @@ const struct game thegame = {
     free_game,
     true, solve_game,
     true, game_can_format_as_text_now, game_text_format,
+    NULL, NULL, /* get_prefs, set_prefs */
     new_ui,
     free_ui,
     NULL, /* encode_ui */
