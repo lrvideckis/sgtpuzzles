@@ -752,7 +752,6 @@ class GameView(context: Context, attrs: AttributeSet?) : View(context, attrs), V
         clear()
         canvas = Canvas(bitmap)
         canvasRestoreJustAfterCreation = canvas.save()
-        resetZoomForClear()
         redrawForInitOrZoomChange()
     }
 

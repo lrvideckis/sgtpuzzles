@@ -904,7 +904,6 @@ class GamePlay : ActivityWithLoadButton(), OnSharedPreferenceChangeListener, Gam
         }
         currentBackend = startingBackend
         refreshColours()
-        gameView.resetZoomForClear()
         gameView.clear()
         applyUndoRedoKbd()
         gameView.keysHandled = 0
