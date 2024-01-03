@@ -1405,7 +1405,8 @@ static char *new_game_desc(const game_params *params, random_state *rs,
                     num_double_straight++;
                 }
                 if (COUNT(arms_adj_1) == 1 && COUNT(arms_adj_2) == 1) {
-                    // regenerate grid if there's a leaf-straight-leaf pattern
+                    // regenerate grid if there's a leaf-straight-leaf pattern:
+                    // my tile = straight, above & below = leaves
                     goto begin_generation;
                 }
                 arms_adj_1 = (index(params, tiles, x, (y+1)%h) & 15);
@@ -1415,13 +1416,12 @@ static char *new_game_desc(const game_params *params, random_state *rs,
                 }
                 if (COUNT(arms_adj_1) == 1 && COUNT(arms_adj_2) == 1) {
                     // regenerate grid if there's a leaf-straight-leaf pattern
+                    // my tile = straight, left & right = leaves
                     goto begin_generation;
                 }
             }
         }
-        //int num_triple_leafs = 0;
-        //int num_double_straight = 0;
-    if (num_triple_leafs >= 2 || num_double_straight >= 5) {
+    if (num_triple_leafs >= 4 || num_double_straight >= 9) {
         goto begin_generation;
     }
 
