@@ -187,3 +187,10 @@ include/
 /unfinished/sokoban
 /unfinished/*.exe
 /*.desktop
+.tmp/
+android/
+caches/
+daemon/
+jdks/
+native/
+wrapper/
