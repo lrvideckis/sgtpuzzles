@@ -184,6 +184,9 @@ static const struct game_params net_presets[] = {
 #endif
 };
 
+static const int di[] = {-1, 1, 0, 0};
+static const int dj[] = {0, 0, -1, 1};
+
 static bool game_fetch_preset(int i, char **name, game_params **params)
 {
     game_params *ret;
@@ -1374,6 +1377,54 @@ static char *new_game_desc(const game_params *params, random_state *rs,
 
 	    prevn = n;
 	}
+    int num_triple_leafs = 0;
+    int num_double_straight = 0;
+    /*
+     * Regenerate the grid based on existance of local deductions, in an effort to make it harder
+     */
+    for (y = 0; y < h; y++)
+        for (x = 0; x < w; x++) {
+            int num_adjacent_leafs = 0;
+            for (int dir = 0; dir < 4; dir++) {
+                int adj_arms = (index(params, tiles, (x + di[dir] + w) % w, (y + dj[dir] + h) % h) & 15);
+                if (COUNT(adj_arms) == 1) {
+                    num_adjacent_leafs++;
+                }
+            }
+            assert(num_adjacent_leafs <= 3);
+            if(num_adjacent_leafs == 3) {
+                // regenerate grid if there's a tile with 3 adjacent leaves
+                // this leads to a trivial local deduction
+                num_triple_leafs++;
+            }
+            int arms = (index(params, tiles, x, y) & 15);
+            if (arms == F(arms)) {
+                int arms_adj_1 = (index(params, tiles, (x+1)%w, y) & 15);
+                int arms_adj_2 = (index(params, tiles, (x-1+w)%w, y) & 15);
+                if (arms_adj_2 == F(arms_adj_2)) {
+                    num_double_straight++;
+                }
+                if (COUNT(arms_adj_1) == 1 && COUNT(arms_adj_2) == 1) {
+                    // regenerate grid if there's a leaf-straight-leaf pattern
+                    goto begin_generation;
+                }
+                arms_adj_1 = (index(params, tiles, x, (y+1)%h) & 15);
+                arms_adj_2 = (index(params, tiles, x, (y-1+h)%h) & 15);
+                if (arms_adj_2 == F(arms_adj_2)) {
+                    num_double_straight++;
+                }
+                if (COUNT(arms_adj_1) == 1 && COUNT(arms_adj_2) == 1) {
+                    // regenerate grid if there's a leaf-straight-leaf pattern
+                    goto begin_generation;
+                }
+            }
+        }
+        //int num_triple_leafs = 0;
+        //int num_double_straight = 0;
+    if (num_triple_leafs >= 2 || num_double_straight >= 5) {
+        goto begin_generation;
+    }
+
 
 	/*
 	 * The solver will have left a lot of LOCKED bits lying
@@ -3118,7 +3169,7 @@ static void game_redraw(drawing *dr, game_drawstate *ds,
         if (tile(state, ui->cx, ui->cy) & 0xF) {
             n = state->width * state->height;
             for (i = a = n2 = 0; i < n; i++) {
-                if (active[i])
+                if (state->tiles[i] & LOCKED)
                     a++;
                 if (state->tiles[i] & 0xF)
                     n2++;
@@ -3130,7 +3181,7 @@ static void game_redraw(drawing *dr, game_drawstate *ds,
              * tile is active), we might as well omit this too.
              */
             if (!complete || a < n2)
-                p += sprintf(p, _("Active: %d/%d"), a, n2);
+                p += sprintf(p, _("Locked: %d/%d"), a, n2);
         }
 
 	status_bar(dr, statusbuf);
