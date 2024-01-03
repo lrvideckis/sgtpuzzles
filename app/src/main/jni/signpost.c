@@ -1301,15 +1301,9 @@ static int solve_single(game_state *state, game_state *copy, int *from)
              * we can't make any deductions here. */
             poss = (poss == -1) ? j : -2;
 
-            /* The moment we see a valid square, mark it as "multiple arrows can hit here.
-             * This results in the following behavior:
-             * We no longer need the logic of "only a single arrow points towards me" to solve.
-             * This makes the puzzle easier.
-             * I've done this because I don't like this deduction - it's annoying/tedius to do, and
-             * it puts some strain on my eyes to look in each of the 8 directions for all arrows
-             * which point towards me
-             */
-            from[j] = -2;
+            /* Modify the from array as described above (which is enumerating
+             * what points to 'j' in a similar way). */
+            from[j] = (from[j] == -1) ? i : -2;
         }
         if (poss == -2) {
             /*debug(("Solver: (%d,%d) has multiple possible next squares.", sx, sy));*/
