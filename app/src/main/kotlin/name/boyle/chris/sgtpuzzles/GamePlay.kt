@@ -34,6 +34,7 @@ import android.view.MenuItem
 import android.view.MenuItem.SHOW_AS_ACTION_ALWAYS
 import android.view.MenuItem.SHOW_AS_ACTION_WITH_TEXT
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.view.WindowManager.BadTokenException
 import android.widget.Button
@@ -83,6 +84,7 @@ import name.boyle.chris.sgtpuzzles.backend.SAMEGAME
 import name.boyle.chris.sgtpuzzles.backend.SOLO
 import name.boyle.chris.sgtpuzzles.backend.UNDEAD
 import name.boyle.chris.sgtpuzzles.backend.UNEQUAL
+import name.boyle.chris.sgtpuzzles.backend.UNTANGLE
 import name.boyle.chris.sgtpuzzles.backend.UsedByJNI
 import name.boyle.chris.sgtpuzzles.buttons.ArrowMode
 import name.boyle.chris.sgtpuzzles.buttons.ButtonsView
@@ -102,6 +104,7 @@ import name.boyle.chris.sgtpuzzles.config.PrefsConstants.LAST_PARAMS_PREFIX
 import name.boyle.chris.sgtpuzzles.config.PrefsConstants.LATIN_M_UNDO_SEEN
 import name.boyle.chris.sgtpuzzles.config.PrefsConstants.LATIN_SHOW_M_KEY
 import name.boyle.chris.sgtpuzzles.config.PrefsConstants.LIMIT_DPI_KEY
+import name.boyle.chris.sgtpuzzles.config.PrefsConstants.LONG_PRESS_TIMEOUT
 import name.boyle.chris.sgtpuzzles.config.PrefsConstants.MOUSE_BACK_KEY
 import name.boyle.chris.sgtpuzzles.config.PrefsConstants.MOUSE_LONG_PRESS_KEY
 import name.boyle.chris.sgtpuzzles.config.PrefsConstants.ORIENTATION_KEY
@@ -366,6 +369,7 @@ class GamePlay : ActivityWithLoadButton(), OnSharedPreferenceChangeListener, Gam
         gameView.requestFocus()
         _wasNight = isNight(resources.configuration)
         applyLimitDPI(false)
+        applyLongPressTimeout()
         applyMouseLongPress()
         applyMouseBackKey()
         window.setBackgroundDrawable(null)
@@ -1067,6 +1071,7 @@ class GamePlay : ActivityWithLoadButton(), OnSharedPreferenceChangeListener, Gam
         }
         gameView.requestFocus()
         onBackPressedCallback.isEnabled = true
+        handler.removeMessages(MsgType.BACK_TIME_ELAPSED.ordinal)
         handler.sendMessageDelayed(
             handler.obtainMessage(MsgType.BACK_TIME_ELAPSED.ordinal),
             PREVENT_BACK_AFTER_KEY_PRESS_MILLIS.toLong()
@@ -1092,10 +1097,10 @@ class GamePlay : ActivityWithLoadButton(), OnSharedPreferenceChangeListener, Gam
         val maybeSwapLRKey = if (shouldHaveSwap) SWAP_L_R_KEY.toString() else ""
         val newKeys =
             if (shouldShowFullSoftKeyboard(c)) filterKeys(newArrowMode) + maybeSwapLRKey + maybeUndoRedo else maybeSwapLRKey + maybeUndoRedo
-        val swap = whichBackend!!.getSwapLR(this)
-        if (!whichBackend.swapLRNatively) swapLROn = swap
+        val swap = whichBackend?.getSwapLR(this) ?: false
+        if (whichBackend?.swapLRNatively != true) swapLROn = swap
         with (newKeyboard) {
-            backend.value = whichBackend
+            backend.value = whichBackend ?: UNTANGLE
             keys.value = newKeys
             arrowMode.value = newArrowMode
             swapLR.value = swap
@@ -1323,9 +1328,14 @@ class GamePlay : ActivityWithLoadButton(), OnSharedPreferenceChangeListener, Gam
             ORIENTATION_KEY -> applyOrientation()
             UNDO_REDO_KBD_KEY -> applyUndoRedoKbd()
             BRIDGES_SHOW_H_KEY, UNEQUAL_SHOW_H_KEY, LATIN_SHOW_M_KEY -> applyKeyboardFilters()
+            LONG_PRESS_TIMEOUT -> applyLongPressTimeout()
             MOUSE_LONG_PRESS_KEY -> applyMouseLongPress()
             MOUSE_BACK_KEY -> applyMouseBackKey()
         }
+    }
+
+    private fun applyLongPressTimeout() {
+        gameView.longPressTimeout = prefs.getInt(LONG_PRESS_TIMEOUT, ViewConfiguration.getLongPressTimeout())
     }
 
     private fun applyMouseLongPress() {

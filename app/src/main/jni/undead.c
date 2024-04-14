@@ -1664,6 +1664,8 @@ struct game_ui {
      * Historically our answer was yes. The Android port prefers no.
      * There are advantages both ways, depending how much you dislike
      * the highlight cluttering your view. So it's a preference.
+     *
+     * Android: applies to normal entry as well as pencil entry.
      */
     bool pencil_keep_highlight;
 };
@@ -1687,7 +1689,8 @@ static config_item *get_prefs(game_ui *ui)
 
     ret = snewn(3, config_item);
 
-    ret[0].name = "Keep cursor after changing pencil marks";
+    /* Android: applies to normal entry as well as pencil entry */
+    ret[0].name = "Keep cursor after changing numbers";
     ret[0].kw = "pencil-keep-highlight";
     ret[0].type = C_BOOLEAN;
     ret[0].u.boolean.bval = ui->pencil_keep_highlight;
@@ -1833,22 +1836,23 @@ static char *interpret_move(const game_state *state, game_ui *ui,
     if (ui->hshow && !ui->hpencil) {
         xi = state->common->xinfo[ui->hx + ui->hy*(state->common->params.w+2)];
         if (xi >= 0 && !state->common->fixed[xi]) {
+            /* Android: apply pencil_keep_highlight here too despite name. */
             if (button == 'g' || button == 'G' || button == '1' || (button == LEFT_BUTTON && on_ghost)) {
-                if (!ui->hcursor) ui->hshow = false;
+                if (!ui->hcursor && !ui->pencil_keep_highlight) ui->hshow = false;
                 if (state->guess[xi] == 1)
                     return ui->hcursor ? NULL : MOVE_UI_UPDATE;
                 sprintf(buf,"G%d",xi);
                 return dupstr(buf);
             }
             if (button == 'v' || button == 'V' || button == '2' || (button == LEFT_BUTTON && on_vampire)) {
-                if (!ui->hcursor) ui->hshow = false;
+                if (!ui->hcursor && !ui->pencil_keep_highlight) ui->hshow = false;
                 if (state->guess[xi] == 2)
                     return ui->hcursor ? NULL : MOVE_UI_UPDATE;
                 sprintf(buf,"V%d",xi);
                 return dupstr(buf);
             }
             if (button == 'z' || button == 'Z' || button == '3' || (button == LEFT_BUTTON && on_zombie)) {
-                if (!ui->hcursor) ui->hshow = false;
+                if (!ui->hcursor && !ui->pencil_keep_highlight) ui->hshow = false;
                 if (state->guess[xi] == 4)
                     return ui->hcursor ? NULL : MOVE_UI_UPDATE;
                 sprintf(buf,"Z%d",xi);
@@ -1856,7 +1860,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
             }
             if (button == 'e' || button == 'E' || button == CURSOR_SELECT2 ||
                 button == '0' || button == '\b' ) {
-                if (!ui->hcursor) ui->hshow = false;
+                if (!ui->hcursor && !ui->pencil_keep_highlight) ui->hshow = false;
                 if (state->guess[xi] == 7 && state->pencils[xi] == 0)
                     return ui->hcursor ? NULL : MOVE_UI_UPDATE;
                 sprintf(buf,"E%d",xi);
@@ -1911,9 +1915,11 @@ static char *interpret_move(const game_state *state, game_ui *ui,
                  * generated. Also, don't hide it if this move has changed
                  * pencil marks and the user preference says not to hide the
                  * highlight in that situation.
+                 *
+                 * Android: apply preference to normal entry as well as pencil entry.
                  */
                 if (!ui->hcursor &&
-                    !(ui->hpencil && ui->pencil_keep_highlight)) {
+                    !(/*ui->hpencil &&*/ ui->pencil_keep_highlight)) {
                     ui->hpencil = false;
                     ui->hshow = false;
                 }
@@ -1930,20 +1936,14 @@ static char *interpret_move(const game_state *state, game_ui *ui,
                 if (button == LEFT_BUTTON) {
                     ui->hshow = true;
                     ui->hpencil = false;
-#ifndef ANDROID
-                    /* Android is always in cursor mode */
                     ui->hcursor = false;
-#endif
                     ui->hx = gx; ui->hy = gy;
                     return MOVE_UI_UPDATE;
                 }
                 else if (button == RIGHT_BUTTON && g == 7) {
                     ui->hshow = true;
                     ui->hpencil = true;
-#ifndef ANDROID
-                    /* Android is always in cursor mode */
                     ui->hcursor = false;
-#endif
                     ui->hx = gx; ui->hy = gy;
                     return MOVE_UI_UPDATE;
                 }
@@ -1957,7 +1957,6 @@ static char *interpret_move(const game_state *state, game_ui *ui,
 #else
                             ui->hshow = false;
                             ui->hpencil = false;
-                            /* Android is always in cursor mode */
                             ui->hcursor = false;
                             ui->hx = 0; ui->hy = 0;
 #endif
@@ -1965,11 +1964,8 @@ static char *interpret_move(const game_state *state, game_ui *ui,
                         }
                         else {
                             ui->hshow = true;
-#ifndef ANDROID
                             ui->hpencil = false;
-                            /* Android is always in cursor mode */
                             ui->hcursor = false;
-#endif
                             ui->hx = gx; ui->hy = gy;
                             return MOVE_UI_UPDATE;
                         }
@@ -1991,10 +1987,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
                     if (!ui->hpencil && g == 7) {
                         ui->hshow = true;
                         ui->hpencil = true;
-#ifndef ANDROID
-                        /* Android is always in cursor mode */
                         ui->hcursor = false;
-#endif
                         ui->hx = gx; ui->hy = gy;
                         return MOVE_UI_UPDATE;
                     }
@@ -2002,20 +1995,14 @@ static char *interpret_move(const game_state *state, game_ui *ui,
                         if (gx == ui->hx && gy == ui->hy) {
                             ui->hshow = false;
                             ui->hpencil = false;
-#ifndef ANDROID
-                            /* Android is always in cursor mode */
                             ui->hcursor = false;
-#endif
                             ui->hx = 0; ui->hy = 0;
                             return MOVE_UI_UPDATE;
                         }
                         else if (g == 7) {
                             ui->hshow = true;
                             ui->hpencil = true;
-#ifndef ANDROID
-                            /* Android is always in cursor mode */
                             ui->hcursor = false;
-#endif
                             ui->hx = gx; ui->hy = gy;
                             return MOVE_UI_UPDATE;
                         }

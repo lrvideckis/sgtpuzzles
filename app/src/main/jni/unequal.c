@@ -1457,6 +1457,8 @@ struct game_ui {
      * Historically our answer was yes. The Android port prefers no.
      * There are advantages both ways, depending how much you dislike
      * the highlight cluttering your view. So it's a preference.
+     *
+     * Android: applies to normal entry as well as pencil entry.
      */
     bool pencil_keep_highlight;
 };
@@ -1490,7 +1492,8 @@ static config_item *get_prefs(game_ui *ui)
 
     ret = snewn(2, config_item);
 
-    ret[0].name = "Keep cursor after changing pencil marks";
+    /* Android: applies to normal entry as well as pencil entry */
+    ret[0].name = "Keep cursor after changing numbers";
     ret[0].kw = "pencil-keep-highlight";
     ret[0].type = C_BOOLEAN;
     ret[0].u.boolean.bval = ui->pencil_keep_highlight;
@@ -1603,10 +1606,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
 #endif
                 ui->hshow = true;
             }
-#ifndef ANDROID
-            /* Android should stay in cursor mode */
             ui->hcursor = false;
-#endif
             return MOVE_UI_UPDATE;
         }
         if (button == RIGHT_BUTTON) {
@@ -1628,10 +1628,7 @@ static char *interpret_move(const game_state *state, game_ui *ui,
                 ui->hx = x; ui->hy = y; ui->hpencil = true;
                 ui->hshow = true;
             }
-#ifndef ANDROID
-            /* Android should stay in cursor mode */
             ui->hcursor = false;
-#endif
             return MOVE_UI_UPDATE;
         }
     } else if (button == LEFT_BUTTON || button == RIGHT_BUTTON) {
@@ -1714,8 +1711,9 @@ static char *interpret_move(const game_state *state, game_ui *ui,
             for (i = 0; i < state->order; i++)
                 anypencil = anypencil || HINT(state, ui->hx, ui->hy, i);
             if (!anypencil) {
-                /* ... expect to remove the cursor in mouse mode. */
-                if (!ui->hcursor) {
+                /* ... except to remove the cursor in mouse mode. */
+                /* Android: ...except if the keep-highlight preference is on. */
+                if (!ui->hcursor && !ui->pencil_keep_highlight) {
                     ui->hshow = false;
                     return MOVE_UI_UPDATE;
                 }
@@ -1731,12 +1729,14 @@ static char *interpret_move(const game_state *state, game_ui *ui,
          * generated. Also, don't hide it if this move has changed
          * pencil marks and the user preference says not to hide the
          * highlight in that situation.
+         *
+         * Android: apply preference to normal entry as well as pencil entry.
          */
-        if (!ui->hcursor && !(ui->hpencil && ui->pencil_keep_highlight))
+        if (!ui->hcursor && !(/*ui->hpencil &&*/ ui->pencil_keep_highlight))
             ui->hshow = false;
 
         return dupstr(buf);
-    } while(0);
+    }
 
     if (button == 'h')
         return dupstr("H");

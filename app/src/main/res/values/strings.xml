@@ -110,11 +110,12 @@ Version %s"</string>
     <string name="enableButtonNote">This can also be enabled temporarily with the button below the game</string>
     <string name="enableButtonsNote">This can also be enabled temporarily with the buttons below the game</string>
     <string name="enableTapOutsideNote">This can also be enabled temporarily by tapping outside the grid</string>
+    <string name="arrowKeysLatinSummary">This will also keep the cursor visible</string>
     <string name="advancedSettings">Display and input</string>
     <string name="advancedSettingsSummary">Less frequently changed settings</string>
     <string name="displaySettings">Display</string>
     <string name="keyboardSettings">Keyboard</string>
-    <string name="mouseSettings">Mouse/Stylus</string>
+    <string name="buttonPressesSettings">Taps / button presses</string>
     <string name="showArrowKeys">Show arrow keys</string>
     <string name="arrowKeysUnavailable">Arrow keys unavailable</string>
     <string name="arrowKeysUnavailableIn">Arrow keys unavailable in {0}</string>
@@ -142,6 +143,7 @@ Version %s"</string>
     <string name="undoRedoOnKeyboardSummary">Allows auto repeat (otherwise in action bar)</string>
     <string name="keyboardBorders">Show edges of keys</string>
     <string name="keyboardBordersSummary">Otherwise only symbols are shown</string>
+    <string name="longPressTimeout">Long-press timeout (ms)</string>
     <string name="extMouseLongPress">Use long-press with mouse/stylus</string>
     <string name="extMouseLongPressNever">Never (only use devices with a right/alt button)</string>
     <string name="extMouseLongPressAuto">Auto (disable when a right/alt click is detected)</string>
@@ -152,7 +154,7 @@ Version %s"</string>
     <string name="bridgesShowHSummary">Undocumented “solve from here” action</string>
     <string name="unequalShowH">Show “H” in Unequal</string>
     <string name="unequalShowHSummary">Adds all pencil marks, removes “obvious” ones, can solve entire puzzle</string>
-    <string name="latinShowM">Show “M” in Keen, Solo, Towers, Unequal</string>
+    <string name="latinShowM">Show “M” in Keen, Solo, Towers, Undead, Unequal</string>
     <string name="latinShowMSummary">Button to pencil-mark all numbers (can be undone)</string>
     <!--string name="patternShowLengths">Show drag lengths</string>
     <string name="patternShowLengthsSummary">Show number of squares selected</string-->
