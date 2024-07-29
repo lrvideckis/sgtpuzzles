@@ -203,11 +203,7 @@ class GamePlay : ActivityWithLoadButton(), OnSharedPreferenceChangeListener, Gam
     }
 
     private class PuzzlesHandler(outer: GamePlay) : Handler(Looper.getMainLooper()) {
-        val ref: WeakReference<GamePlay>
-
-        init {
-            ref = WeakReference(outer)
-        }
+        val ref = WeakReference(outer)
 
         override fun handleMessage(msg: Message) {
             val outer = ref.get()
@@ -771,7 +767,7 @@ class GamePlay : ActivityWithLoadButton(), OnSharedPreferenceChangeListener, Gam
     private fun suggestFilenameForShare(): String = currentBackend!!.displayName + ".sgtp"
 
     private val saveLauncher =
-        registerForActivityResult<String, Uri>(ActivityResultContracts.CreateDocument(MIME_TYPE)) { uri: Uri? ->
+        registerForActivityResult(ActivityResultContracts.CreateDocument(MIME_TYPE)) { uri: Uri? ->
             if (uri == null) return@registerForActivityResult
             try {
                 val saved = saveToString()
